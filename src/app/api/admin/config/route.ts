@@ -1,5 +1,13 @@
 import { NextResponse } from 'next/server';
 
+// Définition explicite du type pour éviter l'erreur TypeScript "never[]" lors du build
+type ParkingState = {
+  totalSpaces: number;
+  branches: any[];
+  benches: any[];
+  parkedUsers: any[];
+};
+
 export async function POST(req: Request) {
   try {
     const adminCode = req.headers.get('x-admin-code');
@@ -33,8 +41,8 @@ export async function POST(req: Request) {
 
     const getData = await getRes.json();
     
-    // Gérer l'état par défaut si la clé n'existe pas encore ou parser correctement
-    let state = {
+    // Gérer l'état par défaut si la clé n'existe pas encore avec notre type explicite
+    let state: ParkingState = {
       totalSpaces: 100,
       branches: [],
       benches: [],
@@ -63,7 +71,7 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${REDIS_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(state) // Upstash stringifie automatiquement le payload
+      body: JSON.stringify(state)
     });
 
     if (!setRes.ok) {
