@@ -1,0 +1,174 @@
+"use client";
+
+import { useState, useEffect } from 'react';
+import useSWR from 'swr';
+import { AppState } from '@/types';
+import { Header } from '@/components/Header';
+import { ProfileSelector } from '@/components/ProfileSelector';
+import { AdminModal } from '@/components/AdminModal';
+import { ParkingButton } from '@/components/ParkingButton';
+import { motion, AnimatePresence } from 'framer-motion';
+import { CarFront } from 'lucide-react';
+
+const fetcher = (url: string) => fetch(url).then(res => res.json()).then(res => res.data);
+
+export default function Dashboard() {
+  const [isClient, setIsClient] = useState(false);
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [userId, setUserId] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+  const [benchId, setBenchId] = useState<string>('');
+  const [isActionLoading, setIsActionLoading] = useState(false);
+
+  const { data: state, error, mutate } = useSWR<AppState>('/api/state', fetcher, {
+    refreshInterval: 5000, // Poll every 5 seconds
+    revalidateOnFocus: true,
+  });
+
+  useEffect(() => {
+    setIsClient(true);
+    // Load profile from localStorage
+    const storedUserId = localStorage.getItem('parking_user_id');
+    const storedName = localStorage.getItem('parking_user_name');
+    const storedBenchId = localStorage.getItem('parking_user_bench');
+
+    if (storedUserId && storedName && storedBenchId) {
+      setUserId(storedUserId);
+      setUserName(storedName);
+      setBenchId(storedBenchId);
+    } else {
+      // Generate a persistent anonymous ID for this device if needed, or rely on name
+      const newId = `user_${Math.random().toString(36).substr(2, 9)}`;
+      setUserId(newId);
+      localStorage.setItem('parking_user_id', newId);
+    }
+  }, []);
+
+  const handleSelectProfile = (name: string, bench: string) => {
+    setUserName(name);
+    setBenchId(bench);
+    localStorage.setItem('parking_user_name', name);
+    localStorage.setItem('parking_user_bench', bench);
+  };
+
+  const currentUserState = state?.users.find(u => u.id === userId);
+  const isParked = currentUserState?.isParked || false;
+
+  const toggleParking = async () => {
+    if (!state) return;
+    
+    // Prevent parking if full and not already parked
+    if (!isParked && state.availableSpaces <= 0) return;
+
+    setIsActionLoading(true);
+    
+    // Optimistic UI update
+    mutate({
+      ...state,
+      availableSpaces: state.availableSpaces + (isParked ? 1 : -1),
+      parkedUsersCount: state.parkedUsersCount + (isParked ? -1 : 1),
+      users: state.users.map(u => u.id === userId ? { ...u, isParked: !isParked } : u)
+    }, false);
+
+    try {
+      await fetch('/api/park', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          name: userName,
+          benchId,
+          isParked: !isParked
+        })
+      });
+      // Re-fetch true state
+      mutate();
+    } catch (e) {
+      console.error(e);
+      mutate(); // revert on failure
+    } finally {
+      setIsActionLoading(false);
+    }
+  };
+
+  if (!isClient || !state) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-screen">
+        <div className="animate-pulse flex flex-col items-center gap-4 text-primary">
+          <CarFront className="w-12 h-12" />
+          <p className="font-medium text-lg">Chargement...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const needsProfile = !userName || !benchId;
+  const isFull = state.availableSpaces === 0;
+  const disabled = (!isParked && isFull) || needsProfile;
+
+  return (
+    <>
+      {needsProfile && (
+        <ProfileSelector state={state} onSelectProfile={handleSelectProfile} />
+      )}
+      
+      <Header 
+        available={state.availableSpaces} 
+        total={state.totalSpaces} 
+        onOpenAdmin={() => setIsAdminOpen(true)} 
+      />
+
+      <AdminModal 
+        isOpen={isAdminOpen} 
+        onClose={() => setIsAdminOpen(false)} 
+        state={state}
+        onUpdate={mutate}
+      />
+
+      <main className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden">
+        {/* Background glow effects */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
+        
+        <AnimatePresence mode="wait">
+          {!needsProfile && (
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col items-center w-full max-w-md"
+            >
+              <div className="mb-12 text-center">
+                <h2 className="text-2xl font-light mb-1">
+                  Bonjour, <span className="font-bold">{userName.split(' ')[0]}</span>
+                </h2>
+                <p className="text-muted-foreground text-sm">
+                  {isParked 
+                    ? "Votre place est actuellement réservée." 
+                    : isFull 
+                      ? "Le parking est complet pour le moment." 
+                      : "Une place vous attend !"}
+                </p>
+              </div>
+
+              <ParkingButton 
+                isParked={isParked} 
+                isLoading={isActionLoading} 
+                onClick={toggleParking} 
+                disabled={disabled}
+              />
+
+              {/* Status Indicator */}
+              <div className="mt-12 flex items-center gap-2 px-4 py-2 rounded-full glass">
+                <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${
+                  isParked ? 'bg-destructive' : isFull ? 'bg-muted-foreground' : 'bg-primary'
+                }`} />
+                <span className="text-sm font-medium">
+                  {isParked ? "Occupé" : isFull ? "Complet" : "Libre"}
+                </span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
+    </>
+  );
+}

@@ -1,0 +1,60 @@
+{
+  "totalSpaces": 52,
+  "branches": [
+    {
+      "id": "b1",
+      "name": "Construction"
+    },
+    {
+      "id": "b2",
+      "name": "Environnemment"
+    }
+  ],
+  "benches": [
+    {
+      "id": "bench1",
+      "branchId": "b1",
+      "name": "Bench1"
+    },
+    {
+      "id": "bench2",
+      "branchId": "b1",
+      "name": "Bench2"
+    },
+    {
+      "id": "bench3",
+      "branchId": "b2",
+      "name": "Bench1"
+    },
+    {
+      "id": "bench_1785146620639",
+      "branchId": "b1",
+      "name": "Bench3"
+    },
+    {
+      "id": "bench_1785146662147",
+      "branchId": "b2",
+      "name": "Bench2"
+    }
+  ],
+  "users": [
+    {
+      "id": "user_7iafulv43",
+      "name": "Fabien",
+      "benchId": "bench3",
+      "isParked": false
+    },
+    {
+      "id": "user_971tcxw0e",
+      "name": "Robin",
+      "benchId": "bench2",
+      "isParked": false
+    },
+    {
+      "id": "user_010hff8dz",
+      "name": "Fabien",
+      "benchId": "bench2",
+      "isParked": false
+    }
+  ]
+}
