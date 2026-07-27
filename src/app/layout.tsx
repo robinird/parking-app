@@ -17,6 +17,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#09090b",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({
@@ -25,7 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="fr" suppressHydrationWarning>
+    <html lang="fr" className="dark" style={{ colorScheme: 'dark' }} suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased bg-background text-foreground min-h-screen flex flex-col`}>
         {children}
       </body>
