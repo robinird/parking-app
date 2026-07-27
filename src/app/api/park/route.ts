@@ -1,36 +1,38 @@
 import { NextResponse } from 'next/server';
 
-// État initial par défaut
-const INITIAL_STATE = {
+// --- État par défaut pour débloquer l'application au 1er lancement ---
+const DEFAULT_STATE = {
   totalSpaces: 20,
-  branches: [],
-  benches: [],
+  branches: [
+    { id: "branch-default", name: "Branche Générique" }
+  ],
+  benches: [
+    { id: "bench-default", name: "Bench Générique", branchId: "branch-default" }
+  ],
   users: []
 };
 
-// Récupération sécurisée des variables d'environnement (Upstash ou KV)
-function getCredentials() {
+// --- Utilitaires de connexion à la base de données Redis ---
+function getRedisCredentials() {
   const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
   const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  
+  if (!url || !token) {
+    throw new Error("Variables d'environnement Redis (Upstash/KV) manquantes.");
+  }
   return { url, token };
 }
 
-// Fonction de lecture depuis Redis
-async function getRedisData() {
-  const { url, token } = getCredentials();
-  
-  if (!url || !token) {
-    return INITIAL_STATE;
-  }
-
+async function getRedisState() {
   try {
+    const { url, token } = getRedisCredentials();
     const res = await fetch(url, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(["GET", "parking_db"]),
+      body: JSON.stringify(["GET", "parking_state"]),
       cache: 'no-store'
     });
     
@@ -38,68 +40,64 @@ async function getRedisData() {
     if (data && data.result) {
       return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
     }
-    return INITIAL_STATE;
-  } catch (error) {
-    console.error('Error reading from Redis:', error);
-    return INITIAL_STATE;
+  } catch (e) {
+    console.error("Erreur de lecture Redis:", e);
   }
+  
+  // Retourne l'état par défaut (avec branche et bench) si la base est vide
+  return DEFAULT_STATE;
 }
 
-// Fonction d'écriture vers Redis
-async function setRedisData(state: any) {
-  const { url, token } = getCredentials();
-  
-  if (!url || !token) {
-    throw new Error("Base de données Redis non connectée (URL ou Token manquant)");
-  }
-
+async function setRedisState(state: any) {
+  const { url, token } = getRedisCredentials();
   const res = await fetch(url, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(["SET", "parking_db", JSON.stringify(state)]),
+    body: JSON.stringify(["SET", "parking_state", JSON.stringify(state)]),
   });
-
+  
   if (!res.ok) {
-    throw new Error("Échec de la sauvegarde sur Redis");
+    throw new Error("Échec de l'écriture dans Redis");
   }
 }
-
-// Logique interne remplaçant l'ancienne fonction toggleParking de @/lib/db
-async function toggleParkingState(userId: string, name: string, benchId: string, isParked: boolean) {
-  const state = await getRedisData();
-  
-  // Recherche de l'utilisateur de manière flexible (support de 'userId' ou 'id')
-  const userIndex = state.users.findIndex((u: any) => u.userId === userId || u.id === userId);
-  
-  if (userIndex >= 0) {
-    // Met à jour l'utilisateur existant
-    state.users[userIndex].isParked = isParked;
-    state.users[userIndex].name = name;
-    state.users[userIndex].benchId = benchId;
-  } else {
-    // Ajoute le nouvel utilisateur
-    state.users.push({ id: userId, userId, name, benchId, isParked });
-  }
-  
-  await setRedisData(state);
-  return state;
-}
+// -----------------------------------------------------------
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { userId, name, benchId, isParked } = body;
 
-    // Validation intacte
     if (!userId || !name || !benchId || typeof isParked !== 'boolean') {
       return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
     }
 
-    // Appel direct de la nouvelle fonction liée à Redis
-    await toggleParkingState(userId, name, benchId, isParked);
+    const state = await getRedisState();
+    
+    // Recherche si l'utilisateur existe déjà dans la base
+    const userIndex = state.users.findIndex((u: any) => u.userId === userId || u.id === userId);
+    
+    if (userIndex !== -1) {
+      // Mise à jour de l'utilisateur existant
+      state.users[userIndex].isParked = isParked;
+      state.users[userIndex].name = name;
+      state.users[userIndex].benchId = benchId;
+      state.users[userIndex].userId = userId;
+    } else {
+      // Création d'un nouvel utilisateur
+      state.users.push({
+        id: userId,
+        userId: userId,
+        name,
+        benchId,
+        isParked
+      });
+    }
+
+    // Sauvegarde du nouvel état dans Upstash Redis
+    await setRedisState(state);
     
     return NextResponse.json({
       success: true,
