@@ -1,33 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-  --card: #ffffff;
-  --card-foreground: #0f172a;
-  --border: #e2e8f0;
+  --background: #09090b;
+  --foreground: #fafafa;
+  --card: #18181b;
+  --card-foreground: #fafafa;
+  --border: #27272a;
   --primary: #10b981;
   --primary-foreground: #ffffff;
   --destructive: #ef4444;
   --destructive-foreground: #ffffff;
-  --muted: #f1f5f9;
-  --muted-foreground: #64748b;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #09090b;
-    --foreground: #fafafa;
-    --card: #18181b;
-    --card-foreground: #fafafa;
-    --border: #27272a;
-    --primary: #10b981;
-    --primary-foreground: #ffffff;
-    --destructive: #ef4444;
-    --destructive-foreground: #ffffff;
-    --muted: #27272a;
-    --muted-foreground: #a1a1aa;
-  }
+  --muted: #27272a;
+  --muted-foreground: #a1a1aa;
 }
 
 @theme inline {
@@ -52,6 +36,7 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark; /* Force le comportement Dark Mode au niveau du navigateur */
 }
 
 /* Custom Utilities for 3D Button and Glassmorphism */
