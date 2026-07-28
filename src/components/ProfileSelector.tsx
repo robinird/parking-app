@@ -5,11 +5,12 @@ import { User, LogIn } from 'lucide-react';
 
 interface ProfileSelectorProps {
   state: AppState;
-  onSelectProfile: (name: string, benchId: string) => void;
+  onSelectProfile: (firstName: string, lastName: string, benchId: string) => void;
 }
 
 export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps) {
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedBench, setSelectedBench] = useState('');
 
@@ -20,12 +21,12 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (name.trim() && selectedBench) {
-      onSelectProfile(name.trim(), selectedBench);
+    if (firstName.trim() && lastName.trim() && selectedBench) {
+      onSelectProfile(firstName.trim(), lastName.trim(), selectedBench);
     }
   };
 
-  const isFormValid = name.trim().length > 1 && selectedBench !== '';
+  const isFormValid = firstName.trim().length > 1 && lastName.trim().length > 1 && selectedBench !== '';
 
   return (
     <AnimatePresence>
@@ -49,16 +50,29 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground ml-1">Nom complet</label>
-              <input 
-                type="text" 
-                value={name}
-                onChange={e => setName(e.target.value)}
-                placeholder="Ex: Jean Dupont"
-                className="w-full bg-background/50 border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
-                required
-              />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground ml-1">Prénom</label>
+                <input 
+                  type="text" 
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  placeholder="Ex: Jean"
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground ml-1">Nom</label>
+                <input 
+                  type="text" 
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  placeholder="Ex: Dupont"
+                  className="w-full bg-background/50 border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
+                  required
+                />
+              </div>
             </div>
 
             <div className="space-y-2">
