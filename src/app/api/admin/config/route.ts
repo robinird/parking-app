@@ -5,7 +5,7 @@ type ParkingState = {
   totalSpaces: number;
   branches: any[];
   benches: any[];
-  parkedUsers: any[];
+  users: any[]; // Corrigé : utilisation de "users" au lieu de "parkedUsers" pour cohérence avec /api/park
 };
 
 export async function POST(req: Request) {
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
       totalSpaces: 100,
       branches: [],
       benches: [],
-      parkedUsers: []
+      users: []
     };
 
     if (getData.result) {
