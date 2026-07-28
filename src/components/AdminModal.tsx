@@ -114,7 +114,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const handleForceUnpark = async (user: any) => {
     const targetId = user.id || user.userId;
     setIsUnparkingId(targetId);
-    setError(''); // Réinitialiser l'erreur avant la tentative
+    setError('');
     
     try {
       const res = await fetch('/api/park', {
@@ -122,7 +122,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId: targetId,
-          // Fallbacks de sécurité pour bypasser la stricte validation de l'API sur les utilisateurs corrompus
           firstName: user.firstName || 'Ancien',
           lastName: user.lastName || 'Utilisateur',
           benchId: user.benchId || 'bench-default',
@@ -131,7 +130,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       });
 
       if (!res.ok) {
-        // Tentative de récupération du message d'erreur de l'API
         const errorData = await res.json().catch(() => ({}));
         throw new Error(errorData.error || `Erreur serveur (${res.status}) lors de la libération de la place.`);
       }
@@ -139,7 +137,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       onUpdate();
     } catch (err: any) {
       console.error('Erreur handleForceUnpark:', err);
-      // Affichage de l'erreur dans l'UI via le state existant sans faire crasher l'app
       setError(err.message || 'Une erreur inattendue est survenue lors de la libération.');
     } finally {
       setIsUnparkingId(null);
@@ -293,23 +290,26 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             {parkedUsersList.map(user => {
                               const bBench = state.benches.find(b => b.id === user.benchId);
                               const bBranch = state.branches.find(br => br.id === bBench?.branchId);
-                              const targetId = user.id || user.userId; // Sécurité pour les clés et états
+                              
+                              // Cast pour bypasser TypeScript sur des propriétés de données potentiellement corrompues
+                              const u = user as any;
+                              const targetId = u.id || u.userId;
 
                               return (
                                 <tr key={targetId} className="hover:bg-muted/30 transition-colors">
                                   <td className="px-4 py-3 font-medium text-foreground">
-                                    {user.firstName || 'Ancien'} {user.lastName || 'Utilisateur'}
+                                    {u.firstName || 'Ancien'} {u.lastName || 'Utilisateur'}
                                   </td>
                                   <td className="px-4 py-3">
                                     <div className="text-xs text-muted-foreground">{bBranch?.name || 'Inconnu'}</div>
                                     <div>{bBench?.name || 'Inconnu'}</div>
                                   </td>
                                   <td className="px-4 py-3 text-muted-foreground">
-                                    {user.parkedAt ? new Date(user.parkedAt).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
+                                    {u.parkedAt ? new Date(u.parkedAt).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <button 
-                                      onClick={() => handleForceUnpark(user)}
+                                      onClick={() => handleForceUnpark(u)}
                                       disabled={isUnparkingId === targetId}
                                       className="text-xs bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1 ml-auto disabled:opacity-50"
                                     >
