@@ -4,10 +4,10 @@ import { NextResponse } from 'next/server';
 const DEFAULT_STATE = {
   totalSpaces: 20,
   branches: [
-    { id: "branch-default", name: "Branche Générique" }
+    { id: "branch-default", name: "Branche Générique", capacity: 20 }
   ],
   benches: [
-    { id: "bench-default", name: "Bench Générique", branchId: "branch-default" }
+    { id: "bench-default", name: "Bench Générique", branchId: "branch-default", capacity: 10 }
   ],
   users: []
 };
@@ -68,9 +68,10 @@ async function setRedisState(state: any) {
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { userId, name, benchId, isParked } = body;
+    const { userId, firstName, lastName, benchId, isParked } = body;
 
-    if (!userId || !name || !benchId || typeof isParked !== 'boolean') {
+    // Validation stricte du payload
+    if (!userId || !firstName || !lastName || !benchId || typeof isParked !== 'boolean') {
       return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
     }
 
@@ -78,21 +79,26 @@ export async function POST(req: Request) {
     
     // Recherche si l'utilisateur existe déjà dans la base
     const userIndex = state.users.findIndex((u: any) => u.userId === userId || u.id === userId);
+    const now = new Date().toISOString();
     
     if (userIndex !== -1) {
       // Mise à jour de l'utilisateur existant
       state.users[userIndex].isParked = isParked;
-      state.users[userIndex].name = name;
+      state.users[userIndex].firstName = firstName;
+      state.users[userIndex].lastName = lastName;
       state.users[userIndex].benchId = benchId;
       state.users[userIndex].userId = userId;
+      state.users[userIndex].parkedAt = isParked ? now : undefined;
     } else {
       // Création d'un nouvel utilisateur
       state.users.push({
         id: userId,
         userId: userId,
-        name,
+        firstName,
+        lastName,
         benchId,
-        isParked
+        isParked,
+        parkedAt: isParked ? now : undefined
       });
     }
 
