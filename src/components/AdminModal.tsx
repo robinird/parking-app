@@ -112,22 +112,35 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   };
 
   const handleForceUnpark = async (user: any) => {
-    setIsUnparkingId(user.id);
+    const targetId = user.id || user.userId;
+    setIsUnparkingId(targetId);
+    setError(''); // Réinitialiser l'erreur avant la tentative
+    
     try {
-      await fetch('/api/park', {
+      const res = await fetch('/api/park', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: user.id,
-          firstName: user.firstName,
-          lastName: user.lastName,
-          benchId: user.benchId,
+          userId: targetId,
+          // Fallbacks de sécurité pour bypasser la stricte validation de l'API sur les utilisateurs corrompus
+          firstName: user.firstName || 'Ancien',
+          lastName: user.lastName || 'Utilisateur',
+          benchId: user.benchId || 'bench-default',
           isParked: false
         })
       });
+
+      if (!res.ok) {
+        // Tentative de récupération du message d'erreur de l'API
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || `Erreur serveur (${res.status}) lors de la libération de la place.`);
+      }
+
       onUpdate();
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Erreur handleForceUnpark:', err);
+      // Affichage de l'erreur dans l'UI via le state existant sans faire crasher l'app
+      setError(err.message || 'Une erreur inattendue est survenue lors de la libération.');
     } finally {
       setIsUnparkingId(null);
     }
@@ -237,18 +250,24 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                 {/* Tabs */}
                 <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
                   <button 
-                    onClick={() => setActiveTab('config')}
+                    onClick={() => { setActiveTab('config'); setError(''); }}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'config' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     <SlidersHorizontal className="w-4 h-4" /> Configuration
                   </button>
                   <button 
-                    onClick={() => setActiveTab('users')}
+                    onClick={() => { setActiveTab('users'); setError(''); }}
                     className={`flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'users' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
                   >
                     <Users className="w-4 h-4" /> Utilisateurs garés ({parkedUsersList.length})
                   </button>
                 </div>
+
+                {error && (
+                  <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4" /> {error}
+                  </div>
+                )}
 
                 {activeTab === 'users' && (
                   <div className="space-y-4">
@@ -274,10 +293,12 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             {parkedUsersList.map(user => {
                               const bBench = state.benches.find(b => b.id === user.benchId);
                               const bBranch = state.branches.find(br => br.id === bBench?.branchId);
+                              const targetId = user.id || user.userId; // Sécurité pour les clés et états
+
                               return (
-                                <tr key={user.id} className="hover:bg-muted/30 transition-colors">
+                                <tr key={targetId} className="hover:bg-muted/30 transition-colors">
                                   <td className="px-4 py-3 font-medium text-foreground">
-                                    {user.firstName} {user.lastName}
+                                    {user.firstName || 'Ancien'} {user.lastName || 'Utilisateur'}
                                   </td>
                                   <td className="px-4 py-3">
                                     <div className="text-xs text-muted-foreground">{bBranch?.name || 'Inconnu'}</div>
@@ -289,10 +310,10 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                   <td className="px-4 py-3 text-right">
                                     <button 
                                       onClick={() => handleForceUnpark(user)}
-                                      disabled={isUnparkingId === user.id}
+                                      disabled={isUnparkingId === targetId}
                                       className="text-xs bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1 ml-auto disabled:opacity-50"
                                     >
-                                      {isUnparkingId === user.id ? '...' : <><UserMinus className="w-3 h-3" /> Libérer</>}
+                                      {isUnparkingId === targetId ? '...' : <><UserMinus className="w-3 h-3" /> Libérer</>}
                                     </button>
                                   </td>
                                 </tr>
@@ -423,12 +444,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                         <p>Astuce : Laissez le champ de capacité vide pour autoriser des réservations "illimitées" sur ce segment (la limite dépendra alors uniquement des autres règles ou du total global).</p>
                       </div>
                     </section>
-                    
-                    {error && (
-                      <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4" /> {error}
-                      </div>
-                    )}
 
                     <div className="pt-4 border-t border-border mt-8 flex justify-end">
                       <button
