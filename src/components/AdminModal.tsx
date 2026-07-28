@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState, Branch, Bench } from '@/types';
-import { X, Save, Lock, AlertCircle, Plus, Trash2 } from 'lucide-react';
+import { X, Save, Lock, AlertCircle, Plus, Trash2, Users, SlidersHorizontal, UserMinus } from 'lucide-react';
 import { Settings as SettingsIcon } from 'lucide-react';
 
 interface AdminModalProps {
@@ -16,16 +16,18 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   
+  const [activeTab, setActiveTab] = useState<'config' | 'users'>('config');
+  
   const [totalSpaces, setTotalSpaces] = useState(state.totalSpaces);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [benches, setBenches] = useState<Bench[]>([]);
   
   const [error, setError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
-  
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [isUnparkingId, setIsUnparkingId] = useState<string | null>(null);
 
-  // Sync state when modal opens or state changes (if authenticated)
+  // Sync state when modal opens or state changes
   useEffect(() => {
     if (isOpen) {
       setTotalSpaces(state.totalSpaces);
@@ -35,10 +37,10 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
         setSelectedBranchId(state.branches[0].id);
       }
     } else {
-      // Reset authentication on close
       setIsAuthenticated(false);
       setCode('');
       setError('');
+      setActiveTab('config');
     }
   }, [isOpen, state]);
 
@@ -109,20 +111,45 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     }
   };
 
+  const handleForceUnpark = async (user: any) => {
+    setIsUnparkingId(user.id);
+    try {
+      await fetch('/api/park', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: user.id,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          benchId: user.benchId,
+          isParked: false
+        })
+      });
+      onUpdate();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsUnparkingId(null);
+    }
+  };
+
   // Branch CRUD
   const addBranch = () => {
     const newId = `b_${Date.now()}`;
-    setBranches([...branches, { id: newId, name: 'Nouvelle Branche' }]);
+    setBranches([...branches, { id: newId, name: 'Nouvelle Branche', capacity: 20 }]);
     setSelectedBranchId(newId);
   };
   
   const updateBranch = (id: string, name: string) => {
     setBranches(branches.map(b => b.id === id ? { ...b, name } : b));
   };
+  const updateBranchCapacity = (id: string, capacity: string) => {
+    setBranches(branches.map(b => b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b));
+  };
   
   const removeBranch = (id: string) => {
     setBranches(branches.filter(b => b.id !== id));
-    setBenches(benches.filter(b => b.branchId !== id)); // Cascade delete benches visually
+    setBenches(benches.filter(b => b.branchId !== id));
     if (selectedBranchId === id) {
       setSelectedBranchId('');
     }
@@ -134,11 +161,14 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const addBench = () => {
     if (!selectedBranchId) return;
     const newId = `bench_${Date.now()}`;
-    setBenches([...benches, { id: newId, branchId: selectedBranchId, name: 'Nouveau Bench' }]);
+    setBenches([...benches, { id: newId, branchId: selectedBranchId, name: 'Nouveau Bench', capacity: 5 }]);
   };
   
   const updateBench = (id: string, name: string) => {
     setBenches(benches.map(b => b.id === id ? { ...b, name } : b));
+  };
+  const updateBenchCapacity = (id: string, capacity: string) => {
+    setBenches(benches.map(b => b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b));
   };
   
   const removeBench = (id: string) => {
@@ -146,6 +176,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   };
 
   if (!isOpen) return null;
+  const parkedUsersList = state.users.filter(u => u.isParked);
 
   return (
     <AnimatePresence>
@@ -154,7 +185,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="bg-card border border-border w-full max-w-2xl rounded-3xl shadow-2xl relative my-8 flex flex-col max-h-[90vh]"
+          className="bg-card border border-border w-full max-w-3xl rounded-3xl shadow-2xl relative my-8 flex flex-col max-h-[90vh]"
         >
           <div className="flex items-center justify-between p-6 border-b border-border bg-muted/30 shrink-0">
             <h2 className="text-xl font-bold flex items-center gap-2">
@@ -173,7 +204,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                   <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
                     <Lock className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <p className="text-muted-foreground text-sm">Veuillez saisir le code d'administration pour modifier les paramètres.</p>
+                  <p className="text-muted-foreground text-sm">Veuillez saisir le code d'administration pour accéder aux paramètres et au suivi.</p>
                 </div>
                 
                 {error && (
@@ -201,117 +232,217 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                 </button>
               </form>
             ) : (
-              <div className="space-y-8">
-                {/* Global Settings */}
-                <section className="space-y-4">
-                  <h3 className="font-semibold text-lg border-b border-border pb-2">Général</h3>
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium text-foreground">Nombre total de places globales</label>
-                    <input 
-                      type="number" 
-                      min="1"
-                      value={totalSpaces}
-                      onChange={e => setTotalSpaces(Number(e.target.value))}
-                      className="w-full max-w-xs bg-background border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
-                    />
-                  </div>
-                </section>
-
-                {/* Branches & Benches Management */}
-                <section className="space-y-4">
-                  <h3 className="font-semibold text-lg border-b border-border pb-2">Structure de l'entreprise</h3>
-                  
-                  <div className="flex flex-col md:flex-row gap-6">
-                    {/* Branches List */}
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-muted-foreground">Branches</label>
-                        <button onClick={addBranch} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
-                          <Plus className="w-3 h-3" /> Ajouter
-                        </button>
-                      </div>
-                      <div className="bg-muted/20 border border-border rounded-xl p-2 space-y-2 max-h-[300px] overflow-y-auto">
-                        {branches.map(branch => (
-                          <div 
-                            key={branch.id}
-                            onClick={() => setSelectedBranchId(branch.id)}
-                            className={`flex items-center gap-2 p-2 rounded-lg cursor-pointer transition-colors ${selectedBranchId === branch.id ? 'bg-primary/10 border border-primary/20' : 'hover:bg-muted'}`}
-                          >
-                            <input 
-                              type="text" 
-                              value={branch.name}
-                              onChange={e => updateBranch(branch.id, e.target.value)}
-                              className="bg-transparent border-none outline-none flex-1 font-medium text-sm"
-                            />
-                            <button onClick={(e) => { e.stopPropagation(); removeBranch(branch.id); }} className="text-muted-foreground hover:text-destructive p-1">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
-                        {branches.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Aucune branche.</p>}
-                      </div>
-                    </div>
-
-                    {/* Benches List */}
-                    <div className="flex-1 space-y-3">
-                      <div className="flex items-center justify-between">
-                        <label className="text-sm font-medium text-muted-foreground">
-                          Benches {selectedBranchId && `(${branches.find(b => b.id === selectedBranchId)?.name})`}
-                        </label>
-                        {selectedBranchId && (
-                          <button onClick={addBench} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
-                            <Plus className="w-3 h-3" /> Ajouter
-                          </button>
-                        )}
-                      </div>
-                      
-                      <div className="bg-muted/20 border border-border rounded-xl p-2 space-y-2 max-h-[300px] overflow-y-auto">
-                        {!selectedBranchId ? (
-                          <p className="text-xs text-muted-foreground text-center p-4">Sélectionnez une branche.</p>
-                        ) : currentBenches.length === 0 ? (
-                          <p className="text-xs text-muted-foreground text-center p-4">Aucun bench.</p>
-                        ) : (
-                          currentBenches.map(bench => (
-                            <div key={bench.id} className="flex items-center gap-2 p-2 rounded-lg bg-background border border-border">
-                              <input 
-                                type="text" 
-                                value={bench.name}
-                                onChange={e => updateBench(bench.id, e.target.value)}
-                                className="bg-transparent border-none outline-none flex-1 text-sm"
-                              />
-                              <button onClick={() => removeBench(bench.id)} className="text-muted-foreground hover:text-destructive p-1">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="bg-blue-500/10 text-blue-500 p-3 rounded-lg text-xs mt-2 flex gap-2 items-start">
-                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p>Attention : La suppression d'une branche ou d'un bench ne modifie pas rétroactivement les utilisateurs déjà enregistrés dessus. Soyez vigilant.</p>
-                  </div>
-                </section>
+              <div className="space-y-6">
                 
-                {error && (
-                  <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg flex items-center gap-2">
-                    <AlertCircle className="w-4 h-4" /> {error}
+                {/* Tabs */}
+                <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
+                  <button 
+                    onClick={() => setActiveTab('config')}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'config' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <SlidersHorizontal className="w-4 h-4" /> Configuration
+                  </button>
+                  <button 
+                    onClick={() => setActiveTab('users')}
+                    className={`flex-1 py-2 text-sm font-medium rounded-lg flex items-center justify-center gap-2 transition-all ${activeTab === 'users' ? 'bg-background shadow text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                  >
+                    <Users className="w-4 h-4" /> Utilisateurs garés ({parkedUsersList.length})
+                  </button>
+                </div>
+
+                {activeTab === 'users' && (
+                  <div className="space-y-4">
+                    <h3 className="font-semibold text-lg border-b border-border pb-2">Suivi des places en temps réel</h3>
+                    
+                    {parkedUsersList.length === 0 ? (
+                      <div className="text-center p-8 bg-muted/20 border border-border rounded-xl">
+                        <Users className="w-12 h-12 text-muted-foreground mx-auto mb-3 opacity-50" />
+                        <p className="text-muted-foreground text-sm">Le parking est actuellement vide.</p>
+                      </div>
+                    ) : (
+                      <div className="bg-muted/20 border border-border rounded-xl overflow-hidden">
+                        <table className="w-full text-left text-sm">
+                          <thead className="bg-muted/50 text-muted-foreground border-b border-border">
+                            <tr>
+                              <th className="px-4 py-3 font-medium">Utilisateur</th>
+                              <th className="px-4 py-3 font-medium">Emplacement</th>
+                              <th className="px-4 py-3 font-medium">Arrivé(e) le</th>
+                              <th className="px-4 py-3 font-medium text-right">Action</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {parkedUsersList.map(user => {
+                              const bBench = state.benches.find(b => b.id === user.benchId);
+                              const bBranch = state.branches.find(br => br.id === bBench?.branchId);
+                              return (
+                                <tr key={user.id} className="hover:bg-muted/30 transition-colors">
+                                  <td className="px-4 py-3 font-medium text-foreground">
+                                    {user.firstName} {user.lastName}
+                                  </td>
+                                  <td className="px-4 py-3">
+                                    <div className="text-xs text-muted-foreground">{bBranch?.name || 'Inconnu'}</div>
+                                    <div>{bBench?.name || 'Inconnu'}</div>
+                                  </td>
+                                  <td className="px-4 py-3 text-muted-foreground">
+                                    {user.parkedAt ? new Date(user.parkedAt).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button 
+                                      onClick={() => handleForceUnpark(user)}
+                                      disabled={isUnparkingId === user.id}
+                                      className="text-xs bg-destructive/10 text-destructive hover:bg-destructive hover:text-destructive-foreground px-3 py-1.5 rounded-lg font-medium transition-colors flex items-center gap-1 ml-auto disabled:opacity-50"
+                                    >
+                                      {isUnparkingId === user.id ? '...' : <><UserMinus className="w-3 h-3" /> Libérer</>}
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                   </div>
                 )}
 
-                <div className="pt-4 border-t border-border mt-8 flex justify-end">
-                  <button
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
-                  >
-                    {isSaving ? 'Enregistrement...' : (
-                      <>Sauvegarder <Save className="w-4 h-4" /></>
+                {activeTab === 'config' && (
+                  <>
+                    <section className="space-y-4">
+                      <h3 className="font-semibold text-lg border-b border-border pb-2">Général</h3>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-foreground">Nombre total de places globales</label>
+                        <input 
+                          type="number" 
+                          min="1"
+                          value={totalSpaces}
+                          onChange={e => setTotalSpaces(Number(e.target.value))}
+                          className="w-full max-w-xs bg-background border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
+                        />
+                      </div>
+                    </section>
+
+                    <section className="space-y-4">
+                      <h3 className="font-semibold text-lg border-b border-border pb-2">Structure et Capacités</h3>
+                      
+                      <div className="flex flex-col md:flex-row gap-6">
+                        {/* Branches List */}
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-muted-foreground">Branches</label>
+                            <button onClick={addBranch} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
+                              <Plus className="w-3 h-3" /> Ajouter
+                            </button>
+                          </div>
+                          <div className="bg-muted/20 border border-border rounded-xl p-2 space-y-2 max-h-[350px] overflow-y-auto">
+                            {branches.map(branch => (
+                              <div 
+                                key={branch.id}
+                                onClick={() => setSelectedBranchId(branch.id)}
+                                className={`flex flex-col gap-2 p-3 rounded-lg cursor-pointer transition-colors ${selectedBranchId === branch.id ? 'bg-primary/5 border-l-2 border-primary' : 'hover:bg-muted border-l-2 border-transparent'}`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <input 
+                                    type="text" 
+                                    value={branch.name}
+                                    onChange={e => updateBranch(branch.id, e.target.value)}
+                                    placeholder="Nom de la branche"
+                                    className="bg-transparent border-none outline-none font-medium text-sm w-3/4"
+                                  />
+                                  <button onClick={(e) => { e.stopPropagation(); removeBranch(branch.id); }} className="text-muted-foreground hover:text-destructive p-1">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-2 text-xs">
+                                  <span className="text-muted-foreground whitespace-nowrap">Capacité Max :</span>
+                                  <input 
+                                    type="number" 
+                                    value={branch.capacity || ''}
+                                    onChange={e => updateBranchCapacity(branch.id, e.target.value)}
+                                    placeholder="Illimitée"
+                                    className="bg-background border border-border rounded px-2 py-1 outline-none w-20 text-xs"
+                                  />
+                                </div>
+                              </div>
+                            ))}
+                            {branches.length === 0 && <p className="text-xs text-muted-foreground text-center p-4">Aucune branche.</p>}
+                          </div>
+                        </div>
+
+                        {/* Benches List */}
+                        <div className="flex-1 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <label className="text-sm font-medium text-muted-foreground">
+                              Benches {selectedBranchId && `(${branches.find(b => b.id === selectedBranchId)?.name})`}
+                            </label>
+                            {selectedBranchId && (
+                              <button onClick={addBench} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
+                                <Plus className="w-3 h-3" /> Ajouter
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div className="bg-muted/20 border border-border rounded-xl p-2 space-y-2 max-h-[350px] overflow-y-auto">
+                            {!selectedBranchId ? (
+                              <p className="text-xs text-muted-foreground text-center p-4">Sélectionnez une branche.</p>
+                            ) : currentBenches.length === 0 ? (
+                              <p className="text-xs text-muted-foreground text-center p-4">Aucun bench.</p>
+                            ) : (
+                              currentBenches.map(bench => (
+                                <div key={bench.id} className="flex flex-col gap-2 p-3 rounded-lg bg-background border border-border">
+                                  <div className="flex items-center justify-between">
+                                    <input 
+                                      type="text" 
+                                      value={bench.name}
+                                      onChange={e => updateBench(bench.id, e.target.value)}
+                                      placeholder="Nom du bench"
+                                      className="bg-transparent border-none outline-none font-medium text-sm w-3/4"
+                                    />
+                                    <button onClick={() => removeBench(bench.id)} className="text-muted-foreground hover:text-destructive p-1">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-muted-foreground whitespace-nowrap">Capacité Max :</span>
+                                    <input 
+                                      type="number" 
+                                      value={bench.capacity || ''}
+                                      onChange={e => updateBenchCapacity(bench.id, e.target.value)}
+                                      placeholder="Illimitée"
+                                      className="bg-muted border border-border rounded px-2 py-1 outline-none w-20 text-xs"
+                                    />
+                                  </div>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-blue-500/10 text-blue-500 p-3 rounded-lg text-xs mt-2 flex gap-2 items-start">
+                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <p>Astuce : Laissez le champ de capacité vide pour autoriser des réservations "illimitées" sur ce segment (la limite dépendra alors uniquement des autres règles ou du total global).</p>
+                      </div>
+                    </section>
+                    
+                    {error && (
+                      <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-lg flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" /> {error}
+                      </div>
                     )}
-                  </button>
-                </div>
+
+                    <div className="pt-4 border-t border-border mt-8 flex justify-end">
+                      <button
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="flex items-center justify-center gap-2 px-8 py-3 rounded-xl bg-primary text-primary-foreground font-bold hover:bg-primary/90 transition-all disabled:opacity-50"
+                      >
+                        {isSaving ? 'Enregistrement...' : (
+                          <>Sauvegarder la configuration <Save className="w-4 h-4" /></>
+                        )}
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
