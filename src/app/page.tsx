@@ -16,49 +16,80 @@ export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [userId, setUserId] = useState<string>('');
-  const [userName, setUserName] = useState<string>('');
+  const [firstName, setFirstName] = useState<string>('');
+  const [lastName, setLastName] = useState<string>('');
   const [benchId, setBenchId] = useState<string>('');
   const [isActionLoading, setIsActionLoading] = useState(false);
 
   const { data: state, error, mutate } = useSWR<AppState>('/api/state', fetcher, {
-    refreshInterval: 5000, // Poll every 5 seconds
+    refreshInterval: 5000,
     revalidateOnFocus: true,
   });
 
   useEffect(() => {
     setIsClient(true);
-    // Load profile from localStorage
     const storedUserId = localStorage.getItem('parking_user_id');
-    const storedName = localStorage.getItem('parking_user_name');
+    const storedFirstName = localStorage.getItem('parking_user_firstName');
+    const storedLastName = localStorage.getItem('parking_user_lastName');
     const storedBenchId = localStorage.getItem('parking_user_bench');
 
-    if (storedUserId && storedName && storedBenchId) {
+    if (storedUserId && storedFirstName && storedLastName && storedBenchId) {
       setUserId(storedUserId);
-      setUserName(storedName);
+      setFirstName(storedFirstName);
+      setLastName(storedLastName);
       setBenchId(storedBenchId);
     } else {
-      // Generate a persistent anonymous ID for this device if needed, or rely on name
       const newId = `user_${Math.random().toString(36).substr(2, 9)}`;
       setUserId(newId);
       localStorage.setItem('parking_user_id', newId);
     }
   }, []);
 
-  const handleSelectProfile = (name: string, bench: string) => {
-    setUserName(name);
+  const handleSelectProfile = (fName: string, lName: string, bench: string) => {
+    setFirstName(fName);
+    setLastName(lName);
     setBenchId(bench);
-    localStorage.setItem('parking_user_name', name);
+    localStorage.setItem('parking_user_firstName', fName);
+    localStorage.setItem('parking_user_lastName', lName);
     localStorage.setItem('parking_user_bench', bench);
   };
 
   const currentUserState = state?.users.find(u => u.id === userId);
   const isParked = currentUserState?.isParked || false;
 
+  // Calcul des capacités pour le blocage intelligent
+  const currentUserBench = state?.benches.find(b => b.id === benchId);
+  const currentUserBranch = state?.branches.find(br => br.id === currentUserBench?.branchId);
+
+  const parkedInBench = state?.users.filter(u => u.isParked && u.benchId === benchId).length || 0;
+  const parkedInBranch = state?.users.filter(u => {
+    if (!u.isParked) return false;
+    const uBench = state.benches.find(b => b.id === u.benchId);
+    return uBench?.branchId === currentUserBranch?.id;
+  }).length || 0;
+
+  // Vérification de la disponibilité (si non défini, on considère 9999 ou une limite très haute)
+  const isBenchFull = currentUserBench?.capacity ? parkedInBench >= currentUserBench.capacity : false;
+  const isBranchFull = currentUserBranch?.capacity ? parkedInBranch >= currentUserBranch.capacity : false;
+  const isGlobalFull = state ? state.availableSpaces <= 0 : false;
+  const needsProfile = !firstName || !lastName || !benchId;
+
+  // Si on est déjà garé, on ignore le blocage pour pouvoir se libérer
+  const isBlockedFromParking = (!isParked && (isGlobalFull || isBenchFull || isBranchFull));
+  const disabled = isBlockedFromParking || needsProfile;
+
+  let statusMessage = "Une place vous attend !";
+  if (isParked) {
+    statusMessage = "Votre place est actuellement réservée.";
+  } else if (isBlockedFromParking) {
+    if (isGlobalFull) statusMessage = "Le parking est globalement complet pour le moment.";
+    else if (isBenchFull) statusMessage = `Complet ! Il n'y a plus de places disponibles pour le bench ${currentUserBench?.name}.`;
+    else if (isBranchFull) statusMessage = `Complet ! Il n'y a plus de places disponibles pour la branche ${currentUserBranch?.name}.`;
+  }
+
   const toggleParking = async () => {
     if (!state) return;
-    
-    // Prevent parking if full and not already parked
-    if (!isParked && state.availableSpaces <= 0) return;
+    if (!isParked && isBlockedFromParking) return;
 
     setIsActionLoading(true);
     
@@ -76,12 +107,12 @@ export default function Dashboard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userId,
-          name: userName,
+          firstName,
+          lastName,
           benchId,
           isParked: !isParked
         })
       });
-      // Re-fetch true state
       mutate();
     } catch (e) {
       console.error(e);
@@ -101,10 +132,6 @@ export default function Dashboard() {
       </div>
     );
   }
-
-  const needsProfile = !userName || !benchId;
-  const isFull = state.availableSpaces === 0;
-  const disabled = (!isParked && isFull) || needsProfile;
 
   return (
     <>
@@ -138,14 +165,10 @@ export default function Dashboard() {
             >
               <div className="mb-12 text-center">
                 <h2 className="text-2xl font-light mb-1">
-                  Bonjour, <span className="font-bold">{userName.split(' ')[0]}</span>
+                  Bonjour, <span className="font-bold">{firstName}</span>
                 </h2>
-                <p className="text-muted-foreground text-sm">
-                  {isParked 
-                    ? "Votre place est actuellement réservée." 
-                    : isFull 
-                      ? "Le parking est complet pour le moment." 
-                      : "Une place vous attend !"}
+                <p className={`text-sm ${isBlockedFromParking && !isParked ? 'text-destructive font-medium' : 'text-muted-foreground'}`}>
+                  {statusMessage}
                 </p>
               </div>
 
@@ -159,10 +182,10 @@ export default function Dashboard() {
               {/* Status Indicator */}
               <div className="mt-12 flex items-center gap-2 px-4 py-2 rounded-full glass">
                 <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${
-                  isParked ? 'bg-destructive' : isFull ? 'bg-muted-foreground' : 'bg-primary'
+                  isParked ? 'bg-destructive' : isBlockedFromParking ? 'bg-muted-foreground' : 'bg-primary'
                 }`} />
                 <span className="text-sm font-medium">
-                  {isParked ? "Occupé" : isFull ? "Complet" : "Libre"}
+                  {isParked ? "Occupé" : isBlockedFromParking ? "Complet" : "Libre"}
                 </span>
               </div>
             </motion.div>
