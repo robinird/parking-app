@@ -1,8 +1,21 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState, Branch, Bench } from '@/types';
-import { X, Save, Lock, AlertCircle, Plus, Trash2, Users, SlidersHorizontal, UserMinus } from 'lucide-react';
-import { Settings as SettingsIcon } from 'lucide-react';
+import {
+  X,
+  Save,
+  Lock,
+  AlertCircle,
+  Plus,
+  Trash2,
+  Users,
+  SlidersHorizontal,
+  UserMinus,
+  QrCode,
+  Printer,
+  RefreshCw,
+  Settings as SettingsIcon,
+} from 'lucide-react';
 
 interface AdminModalProps {
   isOpen: boolean;
@@ -27,12 +40,19 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [isUnparkingId, setIsUnparkingId] = useState<string | null>(null);
 
-  // Sync state when modal opens or state changes
+  // État pour l'affichage/impression d'un QR code spécifique
+  const [qrModalBench, setQrModalBench] = useState<Bench | null>(null);
+
   useEffect(() => {
     if (isOpen) {
       setTotalSpaces(state.totalSpaces);
       setBranches([...state.branches]);
-      setBenches([...state.benches]);
+      setBenches(
+        state.benches.map((b) => ({
+          ...b,
+          qrCodeToken: b.qrCodeToken || `token_${b.id}_${Math.random().toString(36).substring(2, 7)}`,
+        }))
+      );
       if (state.branches.length > 0 && !selectedBranchId) {
         setSelectedBranchId(state.branches[0].id);
       }
@@ -41,6 +61,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       setCode('');
       setError('');
       setActiveTab('config');
+      setQrModalBench(null);
     }
   }, [isOpen, state]);
 
@@ -55,8 +76,8 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       const res = await fetch('/api/admin/verify', {
         method: 'POST',
         headers: {
-          'x-admin-code': code
-        }
+          'x-admin-code': code,
+        },
       });
       
       const data = await res.json();
@@ -83,13 +104,13 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-admin-code': code
+          'x-admin-code': code,
         },
         body: JSON.stringify({
           totalSpaces: Number(totalSpaces),
           branches,
-          benches
-        })
+          benches,
+        }),
       });
 
       const data = await res.json();
@@ -125,25 +146,25 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
           firstName: user.firstName || 'Ancien',
           lastName: user.lastName || 'Utilisateur',
           benchId: user.benchId || 'bench-default',
-          isParked: false
-        })
+          isParked: false,
+        }),
       });
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.error || `Erreur serveur (${res.status}) lors de la libération de la place.`);
+        throw new Error(errorData.error || `Erreur serveur (${res.status}) lors de la libération.`);
       }
 
       onUpdate();
     } catch (err: any) {
       console.error('Erreur handleForceUnpark:', err);
-      setError(err.message || 'Une erreur inattendue est survenue lors de la libération.');
+      setError(err.message || 'Une erreur inattendue est survenue.');
     } finally {
       setIsUnparkingId(null);
     }
   };
 
-  // Branch CRUD
+  // Gestion des Branches
   const addBranch = () => {
     const newId = `b_${Date.now()}`;
     setBranches([...branches, { id: newId, name: 'Nouvelle Branche', capacity: 20 }]);
@@ -151,42 +172,62 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   };
   
   const updateBranch = (id: string, name: string) => {
-    setBranches(branches.map(b => b.id === id ? { ...b, name } : b));
+    setBranches(branches.map((b) => (b.id === id ? { ...b, name } : b)));
   };
+
   const updateBranchCapacity = (id: string, capacity: string) => {
-    setBranches(branches.map(b => b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b));
+    setBranches(
+      branches.map((b) => (b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b))
+    );
   };
   
   const removeBranch = (id: string) => {
-    setBranches(branches.filter(b => b.id !== id));
-    setBenches(benches.filter(b => b.branchId !== id));
+    setBranches(branches.filter((b) => b.id !== id));
+    setBenches(benches.filter((b) => b.branchId !== id));
     if (selectedBranchId === id) {
       setSelectedBranchId('');
     }
   };
 
-  // Bench CRUD
-  const currentBenches = benches.filter(b => b.branchId === selectedBranchId);
+  // Gestion des Benches & QR Codes
+  const currentBenches = benches.filter((b) => b.branchId === selectedBranchId);
   
   const addBench = () => {
     if (!selectedBranchId) return;
     const newId = `bench_${Date.now()}`;
-    setBenches([...benches, { id: newId, branchId: selectedBranchId, name: 'Nouveau Bench', capacity: 5 }]);
+    const newToken = `tok_${Math.random().toString(36).substring(2, 9)}`;
+    setBenches([
+      ...benches,
+      { id: newId, branchId: selectedBranchId, name: 'Nouveau Bench', capacity: 5, qrCodeToken: newToken },
+    ]);
   };
   
   const updateBench = (id: string, name: string) => {
-    setBenches(benches.map(b => b.id === id ? { ...b, name } : b));
+    setBenches(benches.map((b) => (b.id === id ? { ...b, name } : b)));
   };
+
   const updateBenchCapacity = (id: string, capacity: string) => {
-    setBenches(benches.map(b => b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b));
+    setBenches(
+      benches.map((b) => (b.id === id ? { ...b, capacity: capacity ? Number(capacity) : undefined } : b))
+    );
   };
   
   const removeBench = (id: string) => {
-    setBenches(benches.filter(b => b.id !== id));
+    setBenches(benches.filter((b) => b.id !== id));
+  };
+
+  const regenerateBenchToken = (benchId: string) => {
+    const newToken = `tok_${Math.random().toString(36).substring(2, 9)}`;
+    setBenches((prev) =>
+      prev.map((b) => (b.id === benchId ? { ...b, qrCodeToken: newToken } : b))
+    );
+    if (qrModalBench && qrModalBench.id === benchId) {
+      setQrModalBench({ ...qrModalBench, qrCodeToken: newToken });
+    }
   };
 
   if (!isOpen) return null;
-  const parkedUsersList = state.users.filter(u => u.isParked);
+  const parkedUsersList = state.users.filter((u) => u.isParked);
 
   return (
     <AnimatePresence>
@@ -214,7 +255,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                   <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
                     <Lock className="w-8 h-8 text-muted-foreground" />
                   </div>
-                  <p className="text-muted-foreground text-sm">Veuillez saisir le code d'administration pour accéder aux paramètres et au suivi.</p>
+                  <p className="text-muted-foreground text-sm">Veuillez saisir le code d'administration pour accéder aux paramètres.</p>
                 </div>
                 
                 {error && (
@@ -226,7 +267,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                 <input 
                   type="password" 
                   value={code}
-                  onChange={e => setCode(e.target.value)}
+                  onChange={(e) => setCode(e.target.value)}
                   placeholder="Code secret..."
                   className="w-full bg-background border border-border rounded-xl px-4 py-3 text-center tracking-[0.5em] font-mono text-xl focus:border-primary outline-none transition-all"
                   autoFocus
@@ -244,7 +285,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
             ) : (
               <div className="space-y-6">
                 
-                {/* Tabs */}
+                {/* Onglets */}
                 <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
                   <button 
                     onClick={() => { setActiveTab('config'); setError(''); }}
@@ -287,11 +328,10 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {parkedUsersList.map(user => {
-                              const bBench = state.benches.find(b => b.id === user.benchId);
-                              const bBranch = state.branches.find(br => br.id === bBench?.branchId);
+                            {parkedUsersList.map((user) => {
+                              const bBench = state.benches.find((b) => b.id === user.benchId);
+                              const bBranch = state.branches.find((br) => br.id === bBench?.branchId);
                               
-                              // Cast pour bypasser TypeScript sur des propriétés de données potentiellement corrompues
                               const u = user as any;
                               const targetId = u.id || u.userId;
 
@@ -305,7 +345,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                     <div>{bBench?.name || 'Inconnu'}</div>
                                   </td>
                                   <td className="px-4 py-3 text-muted-foreground">
-                                    {u.parkedAt ? new Date(u.parkedAt).toLocaleTimeString('fr-FR', {hour: '2-digit', minute:'2-digit'}) : 'N/A'}
+                                    {u.parkedAt ? new Date(u.parkedAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}
                                   </td>
                                   <td className="px-4 py-3 text-right">
                                     <button 
@@ -336,17 +376,17 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                           type="number" 
                           min="1"
                           value={totalSpaces}
-                          onChange={e => setTotalSpaces(Number(e.target.value))}
+                          onChange={(e) => setTotalSpaces(Number(e.target.value))}
                           className="w-full max-w-xs bg-background border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
                         />
                       </div>
                     </section>
 
                     <section className="space-y-4">
-                      <h3 className="font-semibold text-lg border-b border-border pb-2">Structure et Capacités</h3>
+                      <h3 className="font-semibold text-lg border-b border-border pb-2">Structure et QR Codes Benches</h3>
                       
                       <div className="flex flex-col md:flex-row gap-6">
-                        {/* Branches List */}
+                        {/* Liste des Branches */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">Branches</label>
@@ -355,7 +395,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             </button>
                           </div>
                           <div className="bg-muted/20 border border-border rounded-xl p-2 space-y-2 max-h-[350px] overflow-y-auto">
-                            {branches.map(branch => (
+                            {branches.map((branch) => (
                               <div 
                                 key={branch.id}
                                 onClick={() => setSelectedBranchId(branch.id)}
@@ -365,7 +405,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                   <input 
                                     type="text" 
                                     value={branch.name}
-                                    onChange={e => updateBranch(branch.id, e.target.value)}
+                                    onChange={(e) => updateBranch(branch.id, e.target.value)}
                                     placeholder="Nom de la branche"
                                     className="bg-transparent border-none outline-none font-medium text-sm w-3/4"
                                   />
@@ -378,7 +418,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                   <input 
                                     type="number" 
                                     value={branch.capacity || ''}
-                                    onChange={e => updateBranchCapacity(branch.id, e.target.value)}
+                                    onChange={(e) => updateBranchCapacity(branch.id, e.target.value)}
                                     placeholder="Illimitée"
                                     className="bg-background border border-border rounded px-2 py-1 outline-none w-20 text-xs"
                                   />
@@ -389,11 +429,11 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                           </div>
                         </div>
 
-                        {/* Benches List */}
+                        {/* Liste des Benches avec bouton QR Code */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">
-                              Benches {selectedBranchId && `(${branches.find(b => b.id === selectedBranchId)?.name})`}
+                              Benches {selectedBranchId && `(${branches.find((b) => b.id === selectedBranchId)?.name})`}
                             </label>
                             {selectedBranchId && (
                               <button onClick={addBench} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
@@ -408,26 +448,35 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             ) : currentBenches.length === 0 ? (
                               <p className="text-xs text-muted-foreground text-center p-4">Aucun bench.</p>
                             ) : (
-                              currentBenches.map(bench => (
+                              currentBenches.map((bench) => (
                                 <div key={bench.id} className="flex flex-col gap-2 p-3 rounded-lg bg-background border border-border">
                                   <div className="flex items-center justify-between">
                                     <input 
                                       type="text" 
                                       value={bench.name}
-                                      onChange={e => updateBench(bench.id, e.target.value)}
+                                      onChange={(e) => updateBench(bench.id, e.target.value)}
                                       placeholder="Nom du bench"
                                       className="bg-transparent border-none outline-none font-medium text-sm w-3/4"
                                     />
-                                    <button onClick={() => removeBench(bench.id)} className="text-muted-foreground hover:text-destructive p-1">
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                    <div className="flex items-center gap-1">
+                                      <button 
+                                        onClick={() => setQrModalBench(bench)} 
+                                        title="Imprimer le QR Code"
+                                        className="text-primary hover:bg-primary/10 p-1 rounded transition-colors"
+                                      >
+                                        <QrCode className="w-4 h-4" />
+                                      </button>
+                                      <button onClick={() => removeBench(bench.id)} className="text-muted-foreground hover:text-destructive p-1">
+                                        <Trash2 className="w-4 h-4" />
+                                      </button>
+                                    </div>
                                   </div>
                                   <div className="flex items-center gap-2 text-xs">
                                     <span className="text-muted-foreground whitespace-nowrap">Capacité Max :</span>
                                     <input 
                                       type="number" 
                                       value={bench.capacity || ''}
-                                      onChange={e => updateBenchCapacity(bench.id, e.target.value)}
+                                      onChange={(e) => updateBenchCapacity(bench.id, e.target.value)}
                                       placeholder="Illimitée"
                                       className="bg-muted border border-border rounded px-2 py-1 outline-none w-20 text-xs"
                                     />
@@ -437,11 +486,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                             )}
                           </div>
                         </div>
-                      </div>
-                      
-                      <div className="bg-blue-500/10 text-blue-500 p-3 rounded-lg text-xs mt-2 flex gap-2 items-start">
-                        <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <p>Astuce : Laissez le champ de capacité vide pour autoriser des réservations "illimitées" sur ce segment (la limite dépendra alors uniquement des autres règles ou du total global).</p>
                       </div>
                     </section>
 
@@ -462,6 +506,64 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
             )}
           </div>
         </motion.div>
+
+        {/* Modal d'Affichage et Impression du QR Code */}
+        {qrModalBench && (
+          <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-card border border-border rounded-3xl p-6 max-w-sm w-full flex flex-col items-center gap-4 shadow-2xl relative"
+            >
+              <button
+                onClick={() => setQrModalBench(null)}
+                className="absolute top-4 right-4 p-2 text-muted-foreground hover:text-foreground rounded-full hover:bg-muted"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="text-center">
+                <h3 className="font-bold text-lg text-foreground">{qrModalBench.name}</h3>
+                <p className="text-xs text-muted-foreground">QR Code d'authentification physique</p>
+              </div>
+
+              {/* Génération visuelle du QR code avec API sécurisée */}
+              <div className="bg-white p-4 rounded-2xl shadow-md border border-border flex items-center justify-center">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
+                    JSON.stringify({
+                      benchId: qrModalBench.id,
+                      token: qrModalBench.qrCodeToken || qrModalBench.id,
+                    })
+                  )}`}
+                  alt={`QR Code ${qrModalBench.name}`}
+                  className="w-48 h-48 object-contain"
+                />
+              </div>
+
+              <div className="w-full bg-muted/40 p-2.5 rounded-xl text-[10px] font-mono text-center text-muted-foreground break-all">
+                Payload : {JSON.stringify({ benchId: qrModalBench.id, token: qrModalBench.qrCodeToken || qrModalBench.id })}
+              </div>
+
+              <div className="flex w-full gap-2">
+                <button
+                  onClick={() => regenerateBenchToken(qrModalBench.id)}
+                  title="Régénérer le jeton"
+                  className="px-3 py-2 bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80 rounded-xl text-xs font-medium flex items-center gap-1 transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" /> Régénérer
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 py-2 bg-primary text-primary-foreground font-bold rounded-xl text-xs flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors"
+                >
+                  <Printer className="w-4 h-4" /> Imprimer
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </div>
     </AnimatePresence>
   );
