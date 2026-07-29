@@ -9,6 +9,7 @@ export interface Bench {
   branchId: string;
   name: string;
   capacity?: number; // Capacité max du bench (optionnel)
+  qrCodeToken?: string; // Jeton unique pour la validation QR Code physique
 }
 
 export interface User {
@@ -38,4 +39,9 @@ export interface SpaceAvailability {
   freePercentage?: number;
   status: AvailabilityStatus;
   label: string;
+}
+
+export interface QrCodePayload {
+  benchId: string;
+  token: string;
 }
