@@ -1,4 +1,6 @@
-import { useState, useEffect } from 'react';
+"use client";
+
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState, Branch, Bench } from '@/types';
 import {
@@ -40,7 +42,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const [selectedBranchId, setSelectedBranchId] = useState<string>('');
   const [isUnparkingId, setIsUnparkingId] = useState<string | null>(null);
 
-  // État pour l'affichage/impression d'un QR code spécifique[cite: 4]
   const [qrModalBench, setQrModalBench] = useState<Bench | null>(null);
 
   useEffect(() => {
@@ -164,7 +165,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     }
   };
 
-  // Gestion des Branches[cite: 4]
   const addBranch = () => {
     const newId = `b_${Date.now()}`;
     setBranches([...branches, { id: newId, name: 'Nouvelle Branche', capacity: 20 }]);
@@ -189,7 +189,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     }
   };
 
-  // Gestion des Benches & QR Codes[cite: 4]
   const currentBenches = benches.filter((b) => b.branchId === selectedBranchId);
 
   const addBench = () => {
@@ -284,7 +283,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
               </form>
             ) : (
               <div className="space-y-6">
-                {/* Onglets */}
+                {/* Navigation Onglets */}
                 <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
                   <button
                     onClick={() => { setActiveTab('config'); setError(''); }}
@@ -385,7 +384,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                       <h3 className="font-semibold text-lg border-b border-border pb-2">Structure et QR Codes Benches</h3>
 
                       <div className="flex flex-col md:flex-row gap-6">
-                        {/* Liste des Branches */}
+                        {/* Branches */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">Branches</label>
@@ -428,7 +427,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                           </div>
                         </div>
 
-                        {/* Liste des Benches avec bouton QR Code */}
+                        {/* Benches */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">
@@ -506,7 +505,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
           </div>
         </motion.div>
 
-        {/* Modal d'Affichage et Impression du QR Code */}
+        {/* Modal QR Code Bench */}
         {qrModalBench && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
@@ -527,7 +526,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                 <p className="text-xs text-muted-foreground">QR Code d'authentification physique</p>
               </div>
 
-              {/* Génération visuelle du QR code avec API sécurisée */}
               <div className="bg-white p-4 rounded-2xl shadow-md border border-border flex items-center justify-center">
                 <img
                   src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(
