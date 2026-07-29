@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { readDb, writeDb } from '@/lib/db';
+import { readDB, writeDB } from '@/lib/db';
 import { AppState } from '@/types';
 
 export async function POST(req: NextRequest) {
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const state: AppState = await readDb();
+    const state: AppState = await readDB();
 
     const targetBench = state.benches.find((b) => b.id === benchId);
     if (!targetBench) {
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
             scannedBenchId = parsed.benchId;
             scannedToken = parsed.token;
           } catch {
-            // Si le JSON est invalide
+            // Si le JSON est invalide, on laisse continuer comme texte simple
           }
         }
 
@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
     state.parkedUsersCount = totalParked;
     state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
 
-    await writeDb(state);
+    await writeDB(state);
 
     return NextResponse.json({
       success: true,
