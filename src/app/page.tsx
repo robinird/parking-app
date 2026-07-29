@@ -7,6 +7,7 @@ import { Header } from '@/components/Header';
 import { ProfileSelector } from '@/components/ProfileSelector';
 import { AdminModal } from '@/components/AdminModal';
 import { ParkingButton } from '@/components/ParkingButton';
+import { calculateBenchAvailability, calculateBranchAvailability } from '@/lib/parkingUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CarFront } from 'lucide-react';
 
@@ -57,25 +58,22 @@ export default function Dashboard() {
   const currentUserState = state?.users.find(u => u.id === userId);
   const isParked = currentUserState?.isParked || false;
 
-  // Calcul des capacités pour le blocage intelligent
   const currentUserBench = state?.benches.find(b => b.id === benchId);
   const currentUserBranch = state?.branches.find(br => br.id === currentUserBench?.branchId);
 
-  const parkedInBench = state?.users.filter(u => u.isParked && u.benchId === benchId).length || 0;
-  const parkedInBranch = state?.users.filter(u => {
-    if (!u.isParked) return false;
-    const uBench = state.benches.find(b => b.id === u.benchId);
-    return uBench?.branchId === currentUserBranch?.id;
-  }).length || 0;
+  const benchAvailability = calculateBenchAvailability(currentUserBench, state?.users || []);
+  const branchAvailability = calculateBranchAvailability(
+    currentUserBranch,
+    state?.benches || [],
+    state?.users || []
+  );
 
-  // Vérification de la disponibilité (si non défini, on considère 9999 ou une limite très haute)
-  const isBenchFull = currentUserBench?.capacity ? parkedInBench >= currentUserBench.capacity : false;
-  const isBranchFull = currentUserBranch?.capacity ? parkedInBranch >= currentUserBranch.capacity : false;
+  const isBenchFull = benchAvailability?.status === 'red';
+  const isBranchFull = branchAvailability?.status === 'red';
   const isGlobalFull = state ? state.availableSpaces <= 0 : false;
   const needsProfile = !firstName || !lastName || !benchId;
 
-  // Si on est déjà garé, on ignore le blocage pour pouvoir se libérer
-  const isBlockedFromParking = (!isParked && (isGlobalFull || isBenchFull || isBranchFull));
+  const isBlockedFromParking = !isParked && (isGlobalFull || isBenchFull || isBranchFull);
   const disabled = isBlockedFromParking || needsProfile;
 
   let statusMessage = "Une place vous attend !";
@@ -92,8 +90,7 @@ export default function Dashboard() {
     if (!isParked && isBlockedFromParking) return;
 
     setIsActionLoading(true);
-    
-    // Optimistic UI update
+
     mutate({
       ...state,
       availableSpaces: state.availableSpaces + (isParked ? 1 : -1),
@@ -116,7 +113,7 @@ export default function Dashboard() {
       mutate();
     } catch (e) {
       console.error(e);
-      mutate(); // revert on failure
+      mutate();
     } finally {
       setIsActionLoading(false);
     }
@@ -153,7 +150,6 @@ export default function Dashboard() {
       />
 
       <main className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        {/* Background glow effects */}
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
         
         <AnimatePresence mode="wait">
@@ -172,14 +168,26 @@ export default function Dashboard() {
                 </p>
               </div>
 
+              {/* CORRECTION DU BUG : On transmet toutes les props au ParkingButton */}
               <ParkingButton 
                 isParked={isParked} 
                 isLoading={isActionLoading} 
                 onClick={toggleParking} 
                 disabled={disabled}
+                user={currentUserState || {
+                  id: userId,
+                  firstName,
+                  lastName,
+                  benchId,
+                  isParked: false,
+                }}
+                branches={state.branches}
+                benches={state.benches}
+                users={state.users}
+                branchAvailability={branchAvailability}
+                benchAvailability={benchAvailability}
               />
 
-              {/* Status Indicator */}
               <div className="mt-12 flex items-center gap-2 px-4 py-2 rounded-full glass">
                 <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${
                   isParked ? 'bg-destructive' : isBlockedFromParking ? 'bg-muted-foreground' : 'bg-primary'
