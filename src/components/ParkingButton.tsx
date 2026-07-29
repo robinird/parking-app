@@ -1,7 +1,8 @@
 import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Power, Building2, Layers } from 'lucide-react';
-import { cn, calculateBenchAvailability, calculateBranchAvailability } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { calculateBenchAvailability, calculateBranchAvailability } from '@/lib/parkingUtils';
 import { Bench, Branch, SpaceAvailability, User } from '@/types';
 
 interface ParkingButtonProps {
@@ -9,16 +10,14 @@ interface ParkingButtonProps {
   isLoading: boolean;
   onClick: () => void;
   disabled?: boolean;
-  // Option 1 : Passage direct des disponibilités calculées
-  branchName?: string;
-  benchName?: string;
-  branchAvailability?: SpaceAvailability;
-  benchAvailability?: SpaceAvailability;
-  // Option 2 : Passage des données brutes pour calcul automatique dans le composant
   user?: User;
   branches?: Branch[];
   benches?: Bench[];
   users?: User[];
+  branchAvailability?: SpaceAvailability;
+  benchAvailability?: SpaceAvailability;
+  branchName?: string;
+  benchName?: string;
 }
 
 const statusStyles: Record<SpaceAvailability['status'], string> = {
@@ -40,16 +39,15 @@ export function ParkingButton({
   isLoading,
   onClick,
   disabled,
-  branchName,
-  benchName,
-  branchAvailability,
-  benchAvailability,
   user,
   branches = [],
   benches = [],
   users = [],
+  branchAvailability,
+  benchAvailability,
+  branchName,
+  benchName,
 }: ParkingButtonProps) {
-  // 1. Identification automatique du bench et de la branche si non fournis
   const currentBench = useMemo(() => {
     return benches.find((b) => b.id === user?.benchId);
   }, [benches, user?.benchId]);
@@ -58,27 +56,19 @@ export function ParkingButton({
     return branches.find((br) => br.id === currentBench?.branchId);
   }, [branches, currentBench?.branchId]);
 
-  // 2. Calcul automatique des disponibilités si non passées explicitement
   const computedBenchAvailability = useMemo(() => {
     if (benchAvailability) return benchAvailability;
-    if (currentBench && users.length > 0) {
-      return calculateBenchAvailability(currentBench, users);
-    }
-    return undefined;
+    return calculateBenchAvailability(currentBench, users);
   }, [benchAvailability, currentBench, users]);
 
   const computedBranchAvailability = useMemo(() => {
     if (branchAvailability) return branchAvailability;
-    if (currentBranch && benches.length > 0 && users.length > 0) {
-      return calculateBranchAvailability(currentBranch, benches, users);
-    }
-    return undefined;
+    return calculateBranchAvailability(currentBranch, benches, users);
   }, [branchAvailability, currentBranch, benches, users]);
 
   const displayBranchName = branchName || currentBranch?.name;
   const displayBenchName = benchName || currentBench?.name;
 
-  // 3. Gestion du blocage si complet (sauf si l'utilisateur est déjà garé et veut libérer)
   const isBenchFull = computedBenchAvailability?.status === 'red' && !isParked;
   const isBranchFull = computedBranchAvailability?.status === 'red' && !isParked;
   const isButtonDisabled = disabled || isLoading || isBenchFull || isBranchFull;
@@ -132,7 +122,6 @@ export function ParkingButton({
 
       {/* Bouton de stationnement principal */}
       <div className="relative w-72 h-72 mx-auto flex items-center justify-center">
-        {/* Outer ring / Bezel */}
         <div
           className={cn(
             'absolute inset-0 rounded-full bg-gradient-to-br transition-all duration-500',
@@ -148,7 +137,6 @@ export function ParkingButton({
           )}
         />
 
-        {/* The actual push button */}
         <motion.button
           disabled={isButtonDisabled}
           onClick={onClick}
