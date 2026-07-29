@@ -1,116 +1,171 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { readDb, writeDb } from '@/lib/db';
+import { AppState } from '@/types';
 
-// --- État par défaut pour débloquer l'application au 1er lancement ---
-const DEFAULT_STATE = {
-  totalSpaces: 20,
-  branches: [
-    { id: "branch-default", name: "Branche Générique", capacity: 20 }
-  ],
-  benches: [
-    { id: "bench-default", name: "Bench Générique", branchId: "branch-default", capacity: 10 }
-  ],
-  users: []
-};
-
-// --- Utilitaires de connexion à la base de données Redis ---
-function getRedisCredentials() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  
-  if (!url || !token) {
-    throw new Error("Variables d'environnement Redis (Upstash/KV) manquantes.");
-  }
-  return { url, token };
-}
-
-async function getRedisState() {
-  try {
-    const { url, token } = getRedisCredentials();
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(["GET", "parking_state"]),
-      cache: 'no-store'
-    });
-    
-    const data = await res.json();
-    if (data && data.result) {
-      return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-    }
-  } catch (e) {
-    console.error("Erreur de lecture Redis:", e);
-  }
-  
-  // Retourne l'état par défaut (avec branche et bench) si la base est vide
-  return DEFAULT_STATE;
-}
-
-async function setRedisState(state: any) {
-  const { url, token } = getRedisCredentials();
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(["SET", "parking_state", JSON.stringify(state)]),
-  });
-  
-  if (!res.ok) {
-    throw new Error("Échec de l'écriture dans Redis");
-  }
-}
-// -----------------------------------------------------------
-
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { userId, firstName, lastName, benchId, isParked } = body;
+    const { userId, firstName, lastName, benchId, isParked, qrCodePayload, benchToken } = body;
 
-    // Validation stricte du payload
-    if (!userId || !firstName || !lastName || !benchId || typeof isParked !== 'boolean') {
-      return NextResponse.json({ success: false, error: 'Invalid payload' }, { status: 400 });
+    if (!userId || !benchId) {
+      return NextResponse.json(
+        { error: 'Paramètres userId et benchId obligatoires.' },
+        { status: 400 }
+      );
     }
 
-    const state = await getRedisState();
-    
-    // Recherche si l'utilisateur existe déjà dans la base
-    const userIndex = state.users.findIndex((u: any) => u.userId === userId || u.id === userId);
+    const state: AppState = await readDb();
+
+    const targetBench = state.benches.find((b) => b.id === benchId);
+    if (!targetBench) {
+      return NextResponse.json(
+        { error: 'Le bench spécifié est introuvable.' },
+        { status: 404 }
+      );
+    }
+
+    const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
+
+    // 1. Validation STRICTE du QR Code si l'utilisateur essaie de SE GARER
+    if (isParked) {
+      const payload = qrCodePayload || benchToken;
+
+      if (!payload) {
+        return NextResponse.json(
+          { error: 'Le scan du QR Code du bench est obligatoire pour se garer.' },
+          { status: 400 }
+        );
+      }
+
+      let scannedBenchId: string | undefined;
+      let scannedToken: string | undefined;
+
+      // Parsing du payload (JSON ou texte brut formaté `benchId:token`)
+      if (typeof payload === 'string') {
+        const trimmed = payload.trim();
+        if (trimmed.startsWith('{')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            scannedBenchId = parsed.benchId;
+            scannedToken = parsed.token;
+          } catch {
+            // Si le JSON est invalide
+          }
+        }
+
+        if (!scannedBenchId && trimmed.includes(':')) {
+          const parts = trimmed.split(':');
+          scannedBenchId = parts[0];
+          scannedToken = parts[1];
+        } else if (!scannedBenchId) {
+          scannedToken = trimmed;
+        }
+      }
+
+      // Vérification 1 : Correspondance avec le bench sélectionné
+      if (scannedBenchId && scannedBenchId !== benchId) {
+        return NextResponse.json(
+          {
+            error: `Ce QR Code appartient à un autre bench (${scannedBenchId}) et ne correspond pas à votre bench attribué (${targetBench.name}).`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Vérification 2 : Correspondance du jeton de sécurité du bench
+      const expectedToken = targetBench.qrCodeToken || targetBench.id;
+      const providedToken = scannedToken || payload;
+
+      if (providedToken !== expectedToken && providedToken !== targetBench.id) {
+        return NextResponse.json(
+          {
+            error: `QR Code invalide pour le bench "${targetBench.name}". Veuillez scanner le code officiel présent sur place.`,
+          },
+          { status: 400 }
+        );
+      }
+
+      // Vérification de la capacité du bench
+      const parkedInBench = state.users.filter(
+        (u) => u.isParked && u.benchId === benchId && u.id !== userId
+      ).length;
+
+      if (targetBench.capacity && parkedInBench >= targetBench.capacity) {
+        return NextResponse.json(
+          { error: `Le bench "${targetBench.name}" est actuellement complet.` },
+          { status: 400 }
+        );
+      }
+
+      // Vérification de la capacité de la branche
+      if (targetBranch?.capacity) {
+        const branchBenchIds = new Set(
+          state.benches
+            .filter((b) => b.branchId === targetBranch.id)
+            .map((b) => b.id)
+        );
+
+        const parkedInBranch = state.users.filter(
+          (u) => u.isParked && branchBenchIds.has(u.benchId) && u.id !== userId
+        ).length;
+
+        if (parkedInBranch >= targetBranch.capacity) {
+          return NextResponse.json(
+            { error: `La branche "${targetBranch.name}" est actuellement complète.` },
+            { status: 400 }
+          );
+        }
+      }
+
+      // Vérification de la capacité globale
+      if (state.availableSpaces <= 0) {
+        return NextResponse.json(
+          { error: 'Le parking global est complet.' },
+          { status: 400 }
+        );
+      }
+    }
+
+    // 2. Mise à jour de l'état de l'utilisateur
+    let userIndex = state.users.findIndex((u) => u.id === userId);
     const now = new Date().toISOString();
-    
-    if (userIndex !== -1) {
-      // Mise à jour de l'utilisateur existant
-      state.users[userIndex].isParked = isParked;
-      state.users[userIndex].firstName = firstName;
-      state.users[userIndex].lastName = lastName;
-      state.users[userIndex].benchId = benchId;
-      state.users[userIndex].userId = userId;
-      state.users[userIndex].parkedAt = isParked ? now : undefined;
-    } else {
-      // Création d'un nouvel utilisateur
-      state.users.push({
-        id: userId,
-        userId: userId,
-        firstName,
-        lastName,
+
+    if (userIndex >= 0) {
+      state.users[userIndex] = {
+        ...state.users[userIndex],
+        firstName: firstName || state.users[userIndex].firstName,
+        lastName: lastName || state.users[userIndex].lastName,
         benchId,
         isParked,
-        parkedAt: isParked ? now : undefined
+        parkedAt: isParked ? now : undefined,
+      };
+    } else {
+      state.users.push({
+        id: userId,
+        firstName: firstName || 'Utilisateur',
+        lastName: lastName || 'Anonyme',
+        benchId,
+        isParked,
+        parkedAt: isParked ? now : undefined,
       });
     }
 
-    // Sauvegarde du nouvel état dans Upstash Redis
-    await setRedisState(state);
-    
+    // Recalcul des métriques d'occupation
+    const totalParked = state.users.filter((u) => u.isParked).length;
+    state.parkedUsersCount = totalParked;
+    state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
+
+    await writeDb(state);
+
     return NextResponse.json({
       success: true,
-      message: isParked ? 'Parked successfully' : 'Freed successfully'
+      data: state,
     });
-  } catch (error) {
-    console.error('Error in POST /api/park:', error);
-    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('Erreur dans /api/park:', err);
+    return NextResponse.json(
+      { error: err.message || 'Erreur serveur interne lors du changement d’état.' },
+      { status: 500 }
+    );
   }
 }
