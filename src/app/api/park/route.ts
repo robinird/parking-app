@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { readDB, writeDB } from '@/lib/db';
-import { AppState } from '@/types';
+import { AppState, User } from '@/types';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,13 +14,26 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. LECTURE ET ADAPTATION DU TYPAGE
+    // 1. LECTURE BRUTE DE LA DB ET NORMALISATION STRICTE DES UTILISATEURS POUR CORRESPONDRE À APPSATE
     const rawState = await readDB();
-    const parkedCount = (rawState.users || []).filter((u: any) => u.isParked).length;
+
+    const normalizedUsers: User[] = (rawState.users || []).map((u: any) => ({
+      id: u.id || u.userId || 'unknown',
+      firstName: u.firstName || 'Anonyme',
+      lastName: u.lastName || '',
+      benchId: u.benchId || '',
+      isParked: Boolean(u.isParked),
+      parkedAt: u.parkedAt,
+    }));
+
+    const parkedCount = normalizedUsers.filter((u) => u.isParked).length;
     const availSpaces = Math.max(0, (rawState.totalSpaces || 0) - parkedCount);
 
     const state: AppState = {
-      ...rawState,
+      totalSpaces: rawState.totalSpaces || 50,
+      branches: rawState.branches || [],
+      benches: rawState.benches || [],
+      users: normalizedUsers,
       parkedUsersCount: parkedCount,
       availableSpaces: availSpaces,
     };
@@ -35,7 +48,7 @@ export async function POST(req: NextRequest) {
 
     const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
 
-    // 2. VALIDATION DU QR CODE ET DES CAPACITÉS (POUR LE STATIONNEMENT)
+    // 2. VALIDATION SÉCURISÉE DU QR CODE LORS DU STATIONNEMENT
     if (isParked) {
       const payload = qrCodePayload || benchToken;
 
@@ -70,7 +83,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification : ID du Bench
+      // Vérification ID Bench
       if (scannedBenchId && scannedBenchId !== benchId) {
         return NextResponse.json(
           {
@@ -80,7 +93,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification : Token de sécurité
+      // Vérification Token de sécurité
       const expectedToken = targetBench.qrCodeToken || targetBench.id;
       const providedToken = scannedToken || payload;
 
@@ -93,7 +106,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification : Capacité du Bench
+      // Vérification Capacité du Bench
       const parkedInBench = state.users.filter(
         (u) => u.isParked && u.benchId === benchId && u.id !== userId
       ).length;
@@ -105,7 +118,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification : Capacité de la Branche
+      // Vérification Capacité de la Branche
       if (targetBranch?.capacity) {
         const branchBenchIds = new Set(
           state.benches
@@ -125,7 +138,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification : Capacité Globale
+      // Vérification Capacité Globale
       if (state.availableSpaces <= 0) {
         return NextResponse.json(
           { error: 'Le parking global est complet.' },
@@ -134,7 +147,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. MISE À JOUR DU STATUT DE L'UTILISATEUR
+    // 3. MISE À JOUR DE LA LISTE DES UTILISATEURS
     let userIndex = state.users.findIndex((u) => u.id === userId);
     const now = new Date().toISOString();
 
@@ -158,12 +171,12 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Recalcul des propriétés calculées
+    // Recalcul final des compteurs
     const totalParked = state.users.filter((u) => u.isParked).length;
     state.parkedUsersCount = totalParked;
     state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
 
-    // 4. ÉCRITURE EN BASE (on passe le state typé comme attendu par DB)
+    // 4. ÉCRITURE PERSISTANTE EN BASE
     await writeDB(state as any);
 
     return NextResponse.json({
@@ -171,7 +184,7 @@ export async function POST(req: NextRequest) {
       data: state,
     });
   } catch (err: any) {
-    console.error('Erreur dans /api/park:', err);
+    console.error('Erreur critique dans /api/park:', err);
     return NextResponse.json(
       { error: err.message || 'Erreur serveur interne lors du changement d’état.' },
       { status: 500 }
