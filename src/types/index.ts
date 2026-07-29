@@ -13,8 +13,8 @@ export interface Bench {
 
 export interface User {
   id: string;
-  firstName: string; // Remplacement de name par firstName
-  lastName: string;  // Remplacement de name par lastName
+  firstName: string;
+  lastName: string;
   benchId: string;
   isParked: boolean;
   parkedAt?: string; // Date et heure de stationnement
@@ -27,4 +27,15 @@ export interface AppState {
   branches: Branch[];
   benches: Bench[];
   users: User[];
+}
+
+export type AvailabilityStatus = 'green' | 'orange' | 'red' | 'unlimited';
+
+export interface SpaceAvailability {
+  occupied: number;
+  capacity?: number;
+  free?: number;
+  freePercentage?: number;
+  status: AvailabilityStatus;
+  label: string;
 }
