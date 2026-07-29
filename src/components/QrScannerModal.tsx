@@ -188,13 +188,13 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Container vidéo scanner optimisé mobile */}
-            <div className="relative w-full aspect-square max-w-[280px] bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-primary/30 shrink-0">
-              <div id={readerDivId} className="w-full h-full absolute inset-0" />
+            {/* Container vidéo scanner avec dimensions fixes anti-bug */}
+            <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
+              <div id={readerDivId} style={{ width: '260px', height: '260px', border: 'none' }} />
 
               {isScanning && !error && (
-                <div className="absolute inset-0 pointer-events-none border-2 border-primary/40 rounded-2xl flex items-center justify-center">
-                  <div className="w-48 h-48 border-2 border-dashed border-primary/70 rounded-xl animate-pulse" />
+                <div className="absolute inset-0 pointer-events-none border-2 border-primary/40 rounded-2xl flex items-center justify-center z-10">
+                  <div className="w-44 h-44 border-2 border-dashed border-primary/70 rounded-xl animate-pulse" />
                 </div>
               )}
             </div>
