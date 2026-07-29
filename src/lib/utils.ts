@@ -48,7 +48,7 @@ export function getAvailabilityStatus(occupied: number, capacity?: number): Spac
 /**
  * Calcule la disponibilité spécifique à un Bench
  */
-export function calculateBenchAvailability(bench: Bench, users: User[]): SpaceAvailability {
+export function calculateBenchAvailability(bench: Bench, users: User[] = []): SpaceAvailability {
   const occupied = users.filter((user) => user.benchId === bench.id && user.isParked).length;
   return getAvailabilityStatus(occupied, bench.capacity);
 }
@@ -58,8 +58,8 @@ export function calculateBenchAvailability(bench: Bench, users: User[]): SpaceAv
  */
 export function calculateBranchAvailability(
   branch: Branch,
-  benches: Bench[],
-  users: User[]
+  benches: Bench[] = [],
+  users: User[] = []
 ): SpaceAvailability {
   const branchBenchIds = new Set(
     benches.filter((bench) => bench.branchId === branch.id).map((bench) => bench.id)
