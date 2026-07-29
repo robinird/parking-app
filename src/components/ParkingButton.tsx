@@ -1,17 +1,24 @@
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Power, Building2, Layers } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { SpaceAvailability } from '@/types';
+import { cn, calculateBenchAvailability, calculateBranchAvailability } from '@/lib/utils';
+import { Bench, Branch, SpaceAvailability, User } from '@/types';
 
 interface ParkingButtonProps {
   isParked: boolean;
   isLoading: boolean;
   onClick: () => void;
   disabled?: boolean;
+  // Option 1 : Passage direct des disponibilités calculées
   branchName?: string;
   benchName?: string;
   branchAvailability?: SpaceAvailability;
   benchAvailability?: SpaceAvailability;
+  // Option 2 : Passage des données brutes pour calcul automatique dans le composant
+  user?: User;
+  branches?: Branch[];
+  benches?: Bench[];
+  users?: User[];
 }
 
 const statusStyles: Record<SpaceAvailability['status'], string> = {
@@ -37,53 +44,87 @@ export function ParkingButton({
   benchName,
   branchAvailability,
   benchAvailability,
+  user,
+  branches = [],
+  benches = [],
+  users = [],
 }: ParkingButtonProps) {
-  const isBenchFull = benchAvailability?.status === 'red' && !isParked;
-  const isBranchFull = branchAvailability?.status === 'red' && !isParked;
+  // 1. Identification automatique du bench et de la branche si non fournis
+  const currentBench = useMemo(() => {
+    return benches.find((b) => b.id === user?.benchId);
+  }, [benches, user?.benchId]);
+
+  const currentBranch = useMemo(() => {
+    return branches.find((br) => br.id === currentBench?.branchId);
+  }, [branches, currentBench?.branchId]);
+
+  // 2. Calcul automatique des disponibilités si non passées explicitement
+  const computedBenchAvailability = useMemo(() => {
+    if (benchAvailability) return benchAvailability;
+    if (currentBench && users.length > 0) {
+      return calculateBenchAvailability(currentBench, users);
+    }
+    return undefined;
+  }, [benchAvailability, currentBench, users]);
+
+  const computedBranchAvailability = useMemo(() => {
+    if (branchAvailability) return branchAvailability;
+    if (currentBranch && benches.length > 0 && users.length > 0) {
+      return calculateBranchAvailability(currentBranch, benches, users);
+    }
+    return undefined;
+  }, [branchAvailability, currentBranch, benches, users]);
+
+  const displayBranchName = branchName || currentBranch?.name;
+  const displayBenchName = benchName || currentBench?.name;
+
+  // 3. Gestion du blocage si complet (sauf si l'utilisateur est déjà garé et veut libérer)
+  const isBenchFull = computedBenchAvailability?.status === 'red' && !isParked;
+  const isBranchFull = computedBranchAvailability?.status === 'red' && !isParked;
   const isButtonDisabled = disabled || isLoading || isBenchFull || isBranchFull;
 
   return (
     <div className="flex flex-col items-center justify-center gap-8 w-full max-w-md mx-auto">
       {/* Badges d'occupation en temps réel */}
-      {(branchAvailability || benchAvailability) && (
+      {(computedBranchAvailability || computedBenchAvailability) && (
         <div className="flex flex-col sm:flex-row items-center justify-center gap-3 w-full px-4">
-          {branchAvailability && branchName && (
+          {computedBranchAvailability && displayBranchName && (
             <div
               className={cn(
                 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border text-xs font-semibold shadow-sm transition-colors duration-300 w-full sm:w-auto justify-center',
-                statusStyles[branchAvailability.status]
+                statusStyles[computedBranchAvailability.status]
               )}
             >
               <Building2 className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate max-w-[120px]">{branchName}</span>
+              <span className="truncate max-w-[120px]">{displayBranchName}</span>
               <span className="opacity-40">•</span>
               <span
                 className={cn(
                   'w-2 h-2 rounded-full shrink-0',
-                  statusDotStyles[branchAvailability.status]
+                  statusDotStyles[computedBranchAvailability.status]
                 )}
               />
-              <span className="whitespace-nowrap">{branchAvailability.label}</span>
+              <span className="whitespace-nowrap">{computedBranchAvailability.label}</span>
             </div>
           )}
 
-          {benchAvailability && benchName && (
+          {computedBenchAvailability && displayBenchName && (
             <div
               className={cn(
                 'flex items-center gap-2.5 px-3.5 py-1.5 rounded-full border text-xs font-semibold shadow-sm transition-colors duration-300 w-full sm:w-auto justify-center',
-                statusStyles[benchAvailability.status]
+                statusStyles[computedBenchAvailability.status]
               )}
             >
               <Layers className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate max-w-[120px]">{benchName}</span>
+              <span className="truncate max-w-[120px]">{displayBenchName}</span>
               <span className="opacity-40">•</span>
               <span
                 className={cn(
                   'w-2 h-2 rounded-full shrink-0',
-                  statusDotStyles[benchAvailability.status]
+                  statusDotStyles[computedBenchAvailability.status]
                 )}
               />
-              <span className="whitespace-nowrap">{benchAvailability.label}</span>
+              <span className="whitespace-nowrap">{computedBenchAvailability.label}</span>
             </div>
           )}
         </div>
