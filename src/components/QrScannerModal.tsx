@@ -37,9 +37,10 @@ export function QrScannerModal({
       try {
         setError('');
         setIsScanning(true);
-        
-        // Import dynamique pour éviter tout souci de Server-Side Rendering (SSR)
-        const { Html5Qrcode } = await import('html5-qrcode');
+
+        // @ts-ignore: html5-qrcode peut ne pas avoir de déclarations de types dans le build TypeScript
+        const html5QrcodeModule = await import('html5-qrcode');
+        const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
         if (!isMounted) return;
 
