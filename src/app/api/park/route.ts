@@ -14,7 +14,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const state: AppState = await readDB();
+    // 1. LECTURE ET ADAPTATION DU TYPAGE
+    const rawState = await readDB();
+    const parkedCount = (rawState.users || []).filter((u: any) => u.isParked).length;
+    const availSpaces = Math.max(0, (rawState.totalSpaces || 0) - parkedCount);
+
+    const state: AppState = {
+      ...rawState,
+      parkedUsersCount: parkedCount,
+      availableSpaces: availSpaces,
+    };
 
     const targetBench = state.benches.find((b) => b.id === benchId);
     if (!targetBench) {
@@ -26,7 +35,7 @@ export async function POST(req: NextRequest) {
 
     const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
 
-    // 1. Validation STRICTE du QR Code si l'utilisateur essaie de SE GARER
+    // 2. VALIDATION DU QR CODE ET DES CAPACITÉS (POUR LE STATIONNEMENT)
     if (isParked) {
       const payload = qrCodePayload || benchToken;
 
@@ -40,7 +49,6 @@ export async function POST(req: NextRequest) {
       let scannedBenchId: string | undefined;
       let scannedToken: string | undefined;
 
-      // Parsing du payload (JSON ou texte brut formaté `benchId:token`)
       if (typeof payload === 'string') {
         const trimmed = payload.trim();
         if (trimmed.startsWith('{')) {
@@ -49,7 +57,7 @@ export async function POST(req: NextRequest) {
             scannedBenchId = parsed.benchId;
             scannedToken = parsed.token;
           } catch {
-            // Si le JSON est invalide, on laisse continuer comme texte simple
+            // Non-JSON, traité comme texte brut
           }
         }
 
@@ -62,7 +70,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification 1 : Correspondance avec le bench sélectionné
+      // Vérification : ID du Bench
       if (scannedBenchId && scannedBenchId !== benchId) {
         return NextResponse.json(
           {
@@ -72,7 +80,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification 2 : Correspondance du jeton de sécurité du bench
+      // Vérification : Token de sécurité
       const expectedToken = targetBench.qrCodeToken || targetBench.id;
       const providedToken = scannedToken || payload;
 
@@ -85,7 +93,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification de la capacité du bench
+      // Vérification : Capacité du Bench
       const parkedInBench = state.users.filter(
         (u) => u.isParked && u.benchId === benchId && u.id !== userId
       ).length;
@@ -97,7 +105,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification de la capacité de la branche
+      // Vérification : Capacité de la Branche
       if (targetBranch?.capacity) {
         const branchBenchIds = new Set(
           state.benches
@@ -117,7 +125,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification de la capacité globale
+      // Vérification : Capacité Globale
       if (state.availableSpaces <= 0) {
         return NextResponse.json(
           { error: 'Le parking global est complet.' },
@@ -126,7 +134,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Mise à jour de l'état de l'utilisateur
+    // 3. MISE À JOUR DU STATUT DE L'UTILISATEUR
     let userIndex = state.users.findIndex((u) => u.id === userId);
     const now = new Date().toISOString();
 
@@ -150,12 +158,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Recalcul des métriques d'occupation
+    // Recalcul des propriétés calculées
     const totalParked = state.users.filter((u) => u.isParked).length;
     state.parkedUsersCount = totalParked;
     state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
 
-    await writeDB(state);
+    // 4. ÉCRITURE EN BASE (on passe le state typé comme attendu par DB)
+    await writeDB(state as any);
 
     return NextResponse.json({
       success: true,
