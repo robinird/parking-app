@@ -283,7 +283,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
               </form>
             ) : (
               <div className="space-y-6">
-                {/* Navigation Onglets */}
+                {/* Navigation par onglets */}
                 <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
                   <button
                     onClick={() => { setActiveTab('config'); setError(''); }}
