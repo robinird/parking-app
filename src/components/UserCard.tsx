@@ -22,10 +22,6 @@ export function UserCard({ currentUser, appState, onTogglePark }: UserCardProps)
 
   return (
     <div className="p-6 rounded-2xl bg-card border shadow-sm flex flex-col items-center justify-center gap-6">
-      {/* 
-        En passant user, branches, benches et users,
-        ParkingButton calcule et affiche automatiquement les badges !
-      */}
       <ParkingButton
         isParked={currentUser.isParked}
         isLoading={isLoading}
