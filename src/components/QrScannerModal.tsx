@@ -55,11 +55,27 @@ export function QrScannerModal({
         setError('');
         setIsScanning(true);
 
-        // @ts-ignore - Import dynamique pour contourner SSR et l'absence de types stricts au build
-        const html5QrcodeModule = await import('html5-qrcode');
-        const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
+        // 1. ÉTAPE CLÉ : Demande explicite et préalable de la permission caméra
+        // Cela force le navigateur à afficher la pop-up d'autorisation.
+        try {
+          const mediaStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'environment' } 
+          });
+          // On stoppe immédiatement ce flux temporaire pour laisser html5-qrcode reprendre la main
+          mediaStream.getTracks().forEach((track) => track.stop());
+        } catch (permErr: any) {
+          console.warn("Échec de la demande de permission directe :", permErr);
+          throw new Error(
+            "Accès à la caméra refusé ou bloqué. Veuillez autoriser la caméra dans les paramètres de votre navigateur (icône de cadenas dans la barre d'adresse)."
+          );
+        }
 
         if (!isMounted) return;
+
+        // 2. Import dynamique de la librairie de scan
+        // @ts-ignore
+        const html5QrcodeModule = await import('html5-qrcode');
+        const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
         const element = document.getElementById(readerDivId);
         if (!element) {
@@ -71,24 +87,23 @@ export function QrScannerModal({
 
         const config = { 
           fps: 10, 
-          qrbox: { width: 230, height: 230 },
+          qrbox: { width: 220, height: 220 },
           aspectRatio: 1.0
         };
 
         let cameraConstraint: any = { facingMode: 'environment' };
 
-        // Énumération des caméras pour une robustesse maximale sur mobile (iOS / Android)
         try {
           const devices = await Html5Qrcode.getCameras();
           if (devices && devices.length > 0) {
             const backCamera = devices.find((device: any) => {
               const label = (device.label || '').toLowerCase();
-              return label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('arriêre');
+              return label.includes('back') || label.includes('rear') || label.includes('environment');
             });
             cameraConstraint = backCamera ? backCamera.id : devices[0].id;
           }
         } catch (enumErr) {
-          console.warn("Impossible d'énumérer les caméras, bascule sur la contrainte par défaut.", enumErr);
+          console.warn("Impossible d'énumérer les caméras, utilisation de l'option par défaut.", enumErr);
         }
 
         if (!isMounted) return;
@@ -102,23 +117,20 @@ export function QrScannerModal({
               onScanSuccess(decodedText);
             });
           },
-          () => {
-            // Ignorer les échecs de lecture par frame pour ne pas polluer la console
-          }
+          () => {}
         );
       } catch (err: any) {
         console.error('Erreur critique initialisation caméra:', err);
         if (isMounted) {
           setError(
             err?.message ||
-              "Accès caméra refusé ou non supporté par votre navigateur. Utilisez la saisie manuelle ci-dessous."
+              "Impossible d'activer la caméra. Vérifiez vos permissions ou utilisez la saisie manuelle."
           );
           setIsScanning(false);
         }
       }
     };
 
-    // Petit délai pour laisser l'animation d'ouverture de la modale se stabiliser (crucial sur mobile)
     const timer = setTimeout(() => {
       if (isMounted) {
         initScanner();
@@ -157,7 +169,7 @@ export function QrScannerModal({
           exit={{ opacity: 0, scale: 0.95, y: 10 }}
           className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl relative overflow-hidden flex flex-col my-auto max-h-[92vh]"
         >
-          {/* En-tête mobile friendly */}
+          {/* En-tête */}
           <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border bg-muted/30 shrink-0">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-primary shrink-0" />
@@ -177,7 +189,7 @@ export function QrScannerModal({
             </button>
           </div>
 
-          {/* Corps de la modale avec défilement fluide sur mobile */}
+          {/* Corps de la modale */}
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4 overflow-y-auto">
             {benchName && (
               <div className="text-center w-full bg-muted/20 py-2 px-3 rounded-xl border border-border/50">
@@ -188,7 +200,7 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Container vidéo scanner avec dimensions fixes anti-bug */}
+            {/* Container vidéo avec dimensions fixes strictes pour éviter tout bug d'affichage */}
             <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
               <div id={readerDivId} style={{ width: '260px', height: '260px', border: 'none' }} />
 
@@ -209,16 +221,16 @@ export function QrScannerModal({
                   onClick={handleRetry}
                   className="self-end mt-1 px-3 py-1.5 bg-destructive text-destructive-foreground font-semibold rounded-lg text-[11px] flex items-center gap-1.5 shadow-sm active:scale-95 transition-transform"
                 >
-                  <RefreshCw className="w-3 h-3 animate-spin-once" /> Réessayer la caméra
+                  <RefreshCw className="w-3 h-3" /> Réessayer
                 </button>
               </div>
             )}
 
             <p className="text-xs text-center text-muted-foreground px-2">
-              Positionnez le QR code physique du bench dans le cadre de la caméra pour valider votre présence.
+              Positionnez le QR code physique du bench dans le cadre pour valider votre présence.
             </p>
 
-            {/* Saisie manuelle de secours conçue pour le tactile mobile */}
+            {/* Saisie manuelle de secours */}
             <form onSubmit={handleManualSubmit} className="w-full pt-3 border-t border-border flex flex-col gap-2">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 <Keyboard className="w-3.5 h-3.5" /> Saisie manuelle de secours
