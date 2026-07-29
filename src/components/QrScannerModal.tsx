@@ -38,7 +38,7 @@ export function QrScannerModal({
         setError('');
         setIsScanning(true);
 
-        // @ts-ignore: html5-qrcode peut ne pas avoir de déclarations de types dans le build TypeScript
+        // @ts-ignore - Import dynamique pour contourner SSR et l'absence de types au build
         const html5QrcodeModule = await import('html5-qrcode');
         const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
@@ -60,7 +60,7 @@ export function QrScannerModal({
             onScanSuccess(decodedText);
           },
           () => {
-            // Callback de scan continu (ignoré)
+            // Callback de scan continu ignoré
           }
         );
       } catch (err: any) {
@@ -172,7 +172,7 @@ export function QrScannerModal({
               Veuillez flasher le QR Code affiché sur votre bench pour valider votre présence physique.
             </p>
 
-            {/* Secours : Saisie manuelle */}
+            {/* Saisie manuelle (secours) */}
             <form onSubmit={handleManualSubmit} className="w-full pt-4 border-t border-border flex flex-col gap-2">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 <Keyboard className="w-3.5 h-3.5" /> Saisie manuelle du code
