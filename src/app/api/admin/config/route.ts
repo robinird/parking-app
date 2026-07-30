@@ -1,86 +1,83 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { readDB, writeDB } from '@/lib/db';
+import { AppState, Branch, Bench } from '@/types';
 
-// Définition explicite du type pour éviter l'erreur TypeScript "never[]" lors du build
-type ParkingState = {
-  totalSpaces: number;
-  branches: any[];
-  benches: any[];
-  users: any[]; // Corrigé : utilisation de "users" au lieu de "parkedUsers" pour cohérence avec /api/park
-};
+export const dynamic = 'force-dynamic';
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
+    // 1. Contrôle d'authentification par le Header x-admin-code
     const adminCode = req.headers.get('x-admin-code');
-    
-    if (adminCode !== process.env.ADMIN_CODE) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    const expectedCode = process.env.ADMIN_SECRET_CODE || '123456';
+
+    if (!adminCode || adminCode !== expectedCode) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
     }
 
+    // 2. Lecture du payload JSON de la requête
     const body = await req.json();
     const { totalSpaces, branches, benches } = body;
 
-    // Utilisation des variables Upstash ou KV Vercel
-    const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-    const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-
-    if (!REDIS_URL || !REDIS_TOKEN) {
-      throw new Error('Les variables d\'environnement Redis sont manquantes');
+    // Validation basique des champs reçus
+    if (typeof totalSpaces !== 'number' || totalSpaces < 0) {
+      return NextResponse.json(
+        { success: false, error: 'Le nombre total de places est invalide.' },
+        { status: 400 }
+      );
     }
 
-    // 1. Lire l'état actuel depuis Redis via fetch REST natif
-    const getRes = await fetch(`${REDIS_URL}/get/parking_state`, {
-      headers: {
-        Authorization: `Bearer ${REDIS_TOKEN}`,
-      },
-      cache: 'no-store'
-    });
-
-    if (!getRes.ok) {
-      throw new Error('Erreur de connexion lors de la lecture sur Redis');
+    if (!Array.isArray(branches) || !Array.isArray(benches)) {
+      return NextResponse.json(
+        { success: false, error: 'La liste des branches ou benches est invalide.' },
+        { status: 400 }
+      );
     }
 
-    const getData = await getRes.json();
-    
-    // Gérer l'état par défaut si la clé n'existe pas encore avec notre type explicite
-    let state: ParkingState = {
-      totalSpaces: 100,
-      branches: [],
-      benches: [],
-      users: []
+    // 3. Lecture de l'état actuel de la base pour ne pas écraser les utilisateurs garés
+    const rawState = await readDB();
+
+    const currentUsers = Array.isArray(rawState.users) ? rawState.users : [];
+    const parkedUsersCount = currentUsers.filter((u: any) => Boolean(u.isParked)).length;
+
+    // 4. Construction du nouvel objet AppState propre et complet
+    const updatedState: AppState = {
+      totalSpaces: Number(totalSpaces),
+      availableSpaces: Math.max(0, Number(totalSpaces) - parkedUsersCount),
+      parkedUsersCount: parkedUsersCount,
+      branches: branches.map((b: Branch) => ({
+        id: b.id,
+        name: b.name,
+        capacity: typeof b.capacity === 'number' && !isNaN(b.capacity) ? b.capacity : undefined,
+      })),
+      benches: benches.map((bench: Bench) => ({
+        id: bench.id,
+        branchId: bench.branchId,
+        name: bench.name,
+        capacity: typeof bench.capacity === 'number' && !isNaN(bench.capacity) ? bench.capacity : undefined,
+        qrCodeToken: bench.qrCodeToken || `token_${bench.id}_${Math.random().toString(36).substring(2, 7)}`,
+      })),
+      users: currentUsers,
     };
 
-    if (getData.result) {
-      state = typeof getData.result === 'string' ? JSON.parse(getData.result) : getData.result;
-    }
-    
-    // 2. Mettre à jour les champs fournis par le frontend
-    if (typeof totalSpaces === 'number') {
-      state.totalSpaces = totalSpaces;
-    }
-    if (Array.isArray(branches)) {
-      state.branches = branches;
-    }
-    if (Array.isArray(benches)) {
-      state.benches = benches;
-    }
+    // 5. Écriture définitive dans la base Redis/KV
+    await writeDB(updatedState as any);
 
-    // 3. Sauvegarder le nouvel état dans Redis
-    const setRes = await fetch(`${REDIS_URL}/set/parking_state`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${REDIS_TOKEN}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(state)
+    return NextResponse.json({
+      success: true,
+      message: 'Configuration sauvegardée avec succès.',
+      data: updatedState,
     });
-
-    if (!setRes.ok) {
-      throw new Error('Erreur de connexion lors de l\'écriture sur Redis');
-    }
-
-    return NextResponse.json({ success: true, message: 'Configuration updated successfully' });
-  } catch (error: any) {
-    console.error('Error in POST /api/admin/config:', error);
-    return NextResponse.json({ success: false, error: error.message || 'Internal Server Error' }, { status: 500 });
+  } catch (err: any) {
+    console.error('Erreur critique API /api/admin/config :', err);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: err.message || 'Erreur interne du serveur lors de l’enregistrement de la configuration.' 
+      },
+      { status: 500 }
+    );
   }
 }
