@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Camera, AlertCircle, Keyboard, RefreshCw, Play, Loader2 } from 'lucide-react';
+import { X, Camera, AlertCircle, Keyboard, RefreshCw, Play, Loader2, Upload } from 'lucide-react';
 
 interface QrScannerModalProps {
   isOpen: boolean;
@@ -24,6 +24,7 @@ export function QrScannerModal({
   const [manualCode, setManualCode] = useState<string>('');
   
   const scannerRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const readerDivId = 'qr-reader-container';
 
   const cleanupScanner = async () => {
@@ -49,29 +50,7 @@ export function QrScannerModal({
     setIsCameraRequested(true);
 
     try {
-      // 1. Déclenchement explicite par le geste utilisateur pour débloquer les permissions iOS/Android
-      let mediaStream: MediaStream;
-      try {
-        mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'environment' },
-        });
-      } catch (primaryErr) {
-        // Repli vers n'importe quelle caméra vidéo disponible si 'environment' échoue
-        try {
-          mediaStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-          });
-        } catch (secondaryErr: any) {
-          throw new Error(
-            "Accès à la caméra refusé. Autorisez la caméra dans les paramètres de votre navigateur ou utilisez la saisie manuelle."
-          );
-        }
-      }
-
-      // Arrêt immédiat du flux de test pour libérer le périphérique pour html5-qrcode
-      mediaStream.getTracks().forEach((track) => track.stop());
-
-      // 2. Import dynamique et initialisation de html5-qrcode
+      // Import dynamique de la librairie pour éviter les erreurs SSR Next.js
       // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
@@ -90,28 +69,9 @@ export function QrScannerModal({
         aspectRatio: 1.0,
       };
 
-      let cameraConstraint: any = { facingMode: 'environment' };
-
-      try {
-        const devices = await Html5Qrcode.getCameras();
-        if (devices && devices.length > 0) {
-          const backCamera = devices.find((device: any) => {
-            const label = (device.label || '').toLowerCase();
-            return (
-              label.includes('back') ||
-              label.includes('rear') ||
-              label.includes('environment') ||
-              label.includes('arrière')
-            );
-          });
-          cameraConstraint = backCamera ? backCamera.id : devices[0].id;
-        }
-      } catch (enumErr) {
-        console.warn("Énumération des caméras impossible, contrainte par défaut appliquée.", enumErr);
-      }
-
+      // Démarrage direct avec contrainte universelle mobile (force la pop-up de permission)
       await html5Qrcode.start(
-        cameraConstraint,
+        { facingMode: 'environment' },
         config,
         (decodedText: string) => {
           cleanupScanner().then(() => {
@@ -119,7 +79,7 @@ export function QrScannerModal({
           });
         },
         () => {
-          // Ignorer les échecs de lecture par frame
+          // Ignorer les échecs de lecture par frame pour ne pas polluer la console
         }
       );
 
@@ -127,13 +87,60 @@ export function QrScannerModal({
       setIsLoadingCamera(false);
     } catch (err: any) {
       console.error('Erreur critique d’activation caméra:', err);
+      
+      // Tentative de secours en cas d'échec de la caméra arrière (ex: PC portable ou tablette)
+      try {
+        if (scannerRef.current) {
+          await scannerRef.current.start(
+            { facingMode: 'user' },
+            { fps: 10, qrbox: { width: 220, height: 220 } },
+            (decodedText: string) => {
+              cleanupScanner().then(() => {
+                onScanSuccess(decodedText);
+              });
+            },
+            () => {}
+          );
+          setIsScanning(true);
+          setIsLoadingCamera(false);
+          return;
+        }
+      } catch (fallbackErr) {
+        console.error('Echec du repli caméra:', fallbackErr);
+      }
+
       setError(
-        err?.message ||
-          "Impossible de démarrer le flux vidéo. Vérifiez vos permissions ou saisissez le code manuellement."
+        "Accès caméra bloqué par le navigateur. Utilisez le bouton 'Photo native' ci-dessous ou saisissez le code manuellement."
       );
       setIsScanning(false);
       setIsLoadingCamera(false);
       setIsCameraRequested(false);
+    }
+  };
+
+  // Scan infaillible via l'appareil photo natif du smartphone (contourne 100% des blocages WebRTC)
+  const handleNativePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    const file = e.target.files[0];
+
+    setError('');
+    setIsLoadingCamera(true);
+
+    try {
+      // @ts-ignore
+      const html5QrcodeModule = await import('html5-qrcode');
+      const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
+      
+      const html5Qrcode = new Html5Qrcode(readerDivId);
+      scannerRef.current = html5Qrcode;
+
+      const decodedText = await html5Qrcode.scanFile(file, true);
+      await cleanupScanner();
+      onScanSuccess(decodedText);
+    } catch (err) {
+      console.error('Erreur lecture photo QR:', err);
+      setError("Impossible de lire un QR code valide sur cette photo. Réessayez ou utilisez la saisie manuelle.");
+      setIsLoadingCamera(false);
     }
   };
 
@@ -209,7 +216,7 @@ export function QrScannerModal({
 
             {/* Zone du scanner / Bouton d'activation mobile */}
             <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
-              {/* Conteneur DOM requis par html5-qrcode */}
+              {/* Conteneur DOM strict requis par html5-qrcode */}
               <div
                 id={readerDivId}
                 style={{ width: '260px', height: '260px', border: 'none' }}
@@ -221,14 +228,14 @@ export function QrScannerModal({
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950 gap-3 z-20">
                   <Camera className="w-10 h-10 text-primary/80 animate-pulse" />
                   <p className="text-xs text-zinc-300 px-2 leading-relaxed">
-                    Sur mobile, l&apos;activation de la caméra nécessite votre autorisation directe.
+                    Sur mobile, l&apos;accès à la caméra nécessite un clic direct.
                   </p>
                   <button
                     onClick={handleStartCamera}
                     type="button"
                     className="px-4 py-2.5 bg-primary text-primary-foreground font-bold text-xs rounded-xl hover:bg-primary/90 flex items-center gap-2 shadow-lg active:scale-95 transition-all"
                   >
-                    <Play className="w-3.5 h-3.5 fill-current" /> Activer la caméra
+                    <Play className="w-3.5 h-3.5 fill-current" /> Activer le scanner vidéo
                   </button>
                 </div>
               )}
@@ -243,12 +250,32 @@ export function QrScannerModal({
                 </div>
               )}
 
-              {/* État 3 : Scan actif - Repère visuel */}
+              {/* État 3 : Scan actif */}
               {isScanning && !error && (
                 <div className="absolute inset-0 pointer-events-none border-2 border-primary/40 rounded-2xl flex items-center justify-center z-10">
                   <div className="w-44 h-44 border-2 border-dashed border-primary/70 rounded-xl animate-pulse" />
                 </div>
               )}
+            </div>
+
+            {/* Option native iOS/Android (infaillible si la vidéo live est bloquée) */}
+            <div className="w-full flex flex-col items-center gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={handleNativePhotoCapture}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full py-2.5 px-4 bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-border/60 active:scale-98 transition-all"
+              >
+                <Upload className="w-4 h-4 text-primary" />
+                Prendre une photo du QR (Mode Natif mobile)
+              </button>
             </div>
 
             {error && (
@@ -267,7 +294,7 @@ export function QrScannerModal({
             )}
 
             <p className="text-xs text-center text-muted-foreground px-2">
-              Positionnez le QR code physique du bench dans le cadre pour valider votre présence.
+              Positionnez le QR code dans le cadre ou utilisez le mode natif si la vidéo est bloquée.
             </p>
 
             {/* Saisie manuelle de secours */}
