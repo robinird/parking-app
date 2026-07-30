@@ -22,7 +22,7 @@ export function QrScannerModal({
   const [isScanning, setIsScanning] = useState<boolean>(false);
   const [isLoadingCamera, setIsLoadingCamera] = useState<boolean>(false);
   const [manualCode, setManualCode] = useState<string>('');
-  
+
   const scannerRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const readerDivId = 'qr-reader-container';
@@ -50,7 +50,7 @@ export function QrScannerModal({
     setIsCameraRequested(true);
 
     try {
-      // Import dynamique de la librairie pour éviter les erreurs SSR Next.js
+      // Import dynamique pour la compatibilité Next.js SSR
       // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
@@ -69,7 +69,7 @@ export function QrScannerModal({
         aspectRatio: 1.0,
       };
 
-      // Démarrage direct avec contrainte universelle mobile (force la pop-up de permission)
+      // Lancement direct avec la contrainte caméra arrière
       await html5Qrcode.start(
         { facingMode: 'environment' },
         config,
@@ -79,7 +79,7 @@ export function QrScannerModal({
           });
         },
         () => {
-          // Ignorer les échecs de lecture par frame pour ne pas polluer la console
+          // Ignorer les frames non décodées
         }
       );
 
@@ -87,8 +87,8 @@ export function QrScannerModal({
       setIsLoadingCamera(false);
     } catch (err: any) {
       console.error('Erreur critique d’activation caméra:', err);
-      
-      // Tentative de secours en cas d'échec de la caméra arrière (ex: PC portable ou tablette)
+
+      // Repli vers la caméra par défaut (ex: webcam PC en simulateur mobile)
       try {
         if (scannerRef.current) {
           await scannerRef.current.start(
@@ -118,7 +118,7 @@ export function QrScannerModal({
     }
   };
 
-  // Scan infaillible via l'appareil photo natif du smartphone (contourne 100% des blocages WebRTC)
+  // Lecture via photo prise par l'appareil photo natif du téléphone
   const handleNativePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -130,7 +130,7 @@ export function QrScannerModal({
       // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
-      
+
       const html5Qrcode = new Html5Qrcode(readerDivId);
       scannerRef.current = html5Qrcode;
 
@@ -214,7 +214,7 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Zone du scanner / Bouton d'activation mobile */}
+            {/* Zone du scanner et bouton d'activation principal */}
             <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
               {/* Conteneur DOM strict requis par html5-qrcode */}
               <div
@@ -223,12 +223,12 @@ export function QrScannerModal({
                 className={!isCameraRequested ? 'hidden' : 'block'}
               />
 
-              {/* État 1 : Attente du clic utilisateur pour demander la permission */}
+              {/* État 1 : Bouton d'activation visible en permanence au lancement */}
               {!isCameraRequested && !isLoadingCamera && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950 gap-3 z-20">
                   <Camera className="w-10 h-10 text-primary/80 animate-pulse" />
                   <p className="text-xs text-zinc-300 px-2 leading-relaxed">
-                    Sur mobile, l&apos;accès à la caméra nécessite un clic direct.
+                    Cliquez ci-dessous pour lancer la caméra en direct.
                   </p>
                   <button
                     onClick={handleStartCamera}
@@ -258,7 +258,7 @@ export function QrScannerModal({
               )}
             </div>
 
-            {/* Option native iOS/Android (infaillible si la vidéo live est bloquée) */}
+            {/* Bouton Option natif : Toujours affiché, fonctionne à 100% sur smartphone */}
             <div className="w-full flex flex-col items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -271,7 +271,7 @@ export function QrScannerModal({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-2.5 px-4 bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-border/60 active:scale-98 transition-all"
+                className="w-full py-2.5 px-4 bg-secondary text-secondary-foreground hover:bg-secondary/80 font-semibold text-xs rounded-xl flex items-center justify-center gap-2 border border-border/60 active:scale-98 transition-all shadow-sm"
               >
                 <Upload className="w-4 h-4 text-primary" />
                 Prendre une photo du QR (Mode Natif mobile)
