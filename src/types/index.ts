@@ -8,9 +8,6 @@ export interface UserState {
   isParked: boolean;
 }
 
-// Alias pour éviter les erreurs d'import (User / UserState)
-export type User = UserState;
-
 export interface BenchState {
   id: string;
   name: string;
@@ -19,17 +16,11 @@ export interface BenchState {
   token?: string;
 }
 
-// Alias pour éviter les erreurs d'import (Bench / BenchState)
-export type Bench = BenchState;
-
 export interface BranchState {
   id: string;
   name: string;
   capacity: number;
 }
-
-// Alias pour éviter les erreurs d'import (Branch / BranchState)
-export type Branch = BranchState;
 
 export interface AvailabilityResult {
   status: AvailabilityStatus;
@@ -46,3 +37,8 @@ export interface AppState {
   benches: BenchState[];
   users: UserState[];
 }
+
+// Alias d'exportation pour garantir la compatibilité universelle des imports
+export type User = UserState;
+export type Bench = BenchState;
+export type Branch = BranchState;
