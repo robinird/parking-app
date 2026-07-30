@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Camera, AlertCircle, Keyboard, RefreshCw } from 'lucide-react';
+import { X, Camera, AlertCircle, Keyboard, RefreshCw, Play, Loader2 } from 'lucide-react';
 
 interface QrScannerModalProps {
   isOpen: boolean;
@@ -18,9 +18,11 @@ export function QrScannerModal({
   benchName,
 }: QrScannerModalProps) {
   const [error, setError] = useState<string>('');
-  const [isScanning, setIsScanning] = useState(false);
-  const [manualCode, setManualCode] = useState('');
-  const [isRetrying, setIsRetrying] = useState(false);
+  const [isCameraRequested, setIsCameraRequested] = useState<boolean>(false);
+  const [isScanning, setIsScanning] = useState<boolean>(false);
+  const [isLoadingCamera, setIsLoadingCamera] = useState<boolean>(false);
+  const [manualCode, setManualCode] = useState<string>('');
+  
   const scannerRef = useRef<any>(null);
   const readerDivId = 'qr-reader-container';
 
@@ -36,117 +38,109 @@ export function QrScannerModal({
       } finally {
         scannerRef.current = null;
         setIsScanning(false);
+        setIsLoadingCamera(false);
       }
     }
   };
 
-  useEffect(() => {
-    let isMounted = true;
+  const handleStartCamera = async () => {
+    setError('');
+    setIsLoadingCamera(true);
+    setIsCameraRequested(true);
 
-    if (!isOpen) {
-      cleanupScanner();
-      setError('');
-      setManualCode('');
-      return;
-    }
-
-    const initScanner = async () => {
+    try {
+      // 1. Déclenchement explicite par le geste utilisateur pour débloquer les permissions iOS/Android
+      let mediaStream: MediaStream;
       try {
-        setError('');
-        setIsScanning(true);
-
-        // 1. ÉTAPE CLÉ : Demande explicite et préalable de la permission caméra
-        // Cela force le navigateur à afficher la pop-up d'autorisation.
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+      } catch (primaryErr) {
+        // Repli vers n'importe quelle caméra vidéo disponible si 'environment' échoue
         try {
-          const mediaStream = await navigator.mediaDevices.getUserMedia({ 
-            video: { facingMode: 'environment' } 
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: true,
           });
-          // On stoppe immédiatement ce flux temporaire pour laisser html5-qrcode reprendre la main
-          mediaStream.getTracks().forEach((track) => track.stop());
-        } catch (permErr: any) {
-          console.warn("Échec de la demande de permission directe :", permErr);
+        } catch (secondaryErr: any) {
           throw new Error(
-            "Accès à la caméra refusé ou bloqué. Veuillez autoriser la caméra dans les paramètres de votre navigateur (icône de cadenas dans la barre d'adresse)."
+            "Accès à la caméra refusé. Autorisez la caméra dans les paramètres de votre navigateur ou utilisez la saisie manuelle."
           );
         }
-
-        if (!isMounted) return;
-
-        // 2. Import dynamique de la librairie de scan
-        // @ts-ignore
-        const html5QrcodeModule = await import('html5-qrcode');
-        const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
-
-        const element = document.getElementById(readerDivId);
-        if (!element) {
-          throw new Error("Conteneur vidéo introuvable dans le DOM.");
-        }
-
-        const html5Qrcode = new Html5Qrcode(readerDivId);
-        scannerRef.current = html5Qrcode;
-
-        const config = { 
-          fps: 10, 
-          qrbox: { width: 220, height: 220 },
-          aspectRatio: 1.0
-        };
-
-        let cameraConstraint: any = { facingMode: 'environment' };
-
-        try {
-          const devices = await Html5Qrcode.getCameras();
-          if (devices && devices.length > 0) {
-            const backCamera = devices.find((device: any) => {
-              const label = (device.label || '').toLowerCase();
-              return label.includes('back') || label.includes('rear') || label.includes('environment');
-            });
-            cameraConstraint = backCamera ? backCamera.id : devices[0].id;
-          }
-        } catch (enumErr) {
-          console.warn("Impossible d'énumérer les caméras, utilisation de l'option par défaut.", enumErr);
-        }
-
-        if (!isMounted) return;
-
-        await html5Qrcode.start(
-          cameraConstraint,
-          config,
-          (decodedText: string) => {
-            if (!isMounted) return;
-            cleanupScanner().then(() => {
-              onScanSuccess(decodedText);
-            });
-          },
-          () => {}
-        );
-      } catch (err: any) {
-        console.error('Erreur critique initialisation caméra:', err);
-        if (isMounted) {
-          setError(
-            err?.message ||
-              "Impossible d'activer la caméra. Vérifiez vos permissions ou utilisez la saisie manuelle."
-          );
-          setIsScanning(false);
-        }
       }
-    };
 
-    const timer = setTimeout(() => {
-      if (isMounted) {
-        initScanner();
+      // Arrêt immédiat du flux de test pour libérer le périphérique pour html5-qrcode
+      mediaStream.getTracks().forEach((track) => track.stop());
+
+      // 2. Import dynamique et initialisation de html5-qrcode
+      // @ts-ignore
+      const html5QrcodeModule = await import('html5-qrcode');
+      const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
+
+      const element = document.getElementById(readerDivId);
+      if (!element) {
+        throw new Error("Conteneur vidéo introuvable dans le DOM.");
       }
-    }, 400);
 
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-      cleanupScanner();
-    };
-  }, [isOpen, isRetrying]);
+      const html5Qrcode = new Html5Qrcode(readerDivId);
+      scannerRef.current = html5Qrcode;
 
-  const handleRetry = () => {
+      const config = {
+        fps: 10,
+        qrbox: { width: 220, height: 220 },
+        aspectRatio: 1.0,
+      };
+
+      let cameraConstraint: any = { facingMode: 'environment' };
+
+      try {
+        const devices = await Html5Qrcode.getCameras();
+        if (devices && devices.length > 0) {
+          const backCamera = devices.find((device: any) => {
+            const label = (device.label || '').toLowerCase();
+            return (
+              label.includes('back') ||
+              label.includes('rear') ||
+              label.includes('environment') ||
+              label.includes('arrière')
+            );
+          });
+          cameraConstraint = backCamera ? backCamera.id : devices[0].id;
+        }
+      } catch (enumErr) {
+        console.warn("Énumération des caméras impossible, contrainte par défaut appliquée.", enumErr);
+      }
+
+      await html5Qrcode.start(
+        cameraConstraint,
+        config,
+        (decodedText: string) => {
+          cleanupScanner().then(() => {
+            onScanSuccess(decodedText);
+          });
+        },
+        () => {
+          // Ignorer les échecs de lecture par frame
+        }
+      );
+
+      setIsScanning(true);
+      setIsLoadingCamera(false);
+    } catch (err: any) {
+      console.error('Erreur critique d’activation caméra:', err);
+      setError(
+        err?.message ||
+          "Impossible de démarrer le flux vidéo. Vérifiez vos permissions ou saisissez le code manuellement."
+      );
+      setIsScanning(false);
+      setIsLoadingCamera(false);
+      setIsCameraRequested(false);
+    }
+  };
+
+  const handleResetCamera = () => {
     cleanupScanner().then(() => {
-      setIsRetrying((prev) => !prev);
+      setIsCameraRequested(false);
+      setError('');
     });
   };
 
@@ -158,15 +152,28 @@ export function QrScannerModal({
     });
   };
 
+  useEffect(() => {
+    if (!isOpen) {
+      cleanupScanner();
+      setError('');
+      setManualCode('');
+      setIsCameraRequested(false);
+    }
+    return () => {
+      cleanupScanner();
+    };
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-background/80 backdrop-blur-md overflow-y-auto">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95, y: 10 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.95, y: 10 }}
+          initial={{ opacity: 0, scale: 0.98 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.98 }}
+          transition={{ duration: 0.15, ease: 'easeOut' }}
           className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl relative overflow-hidden flex flex-col my-auto max-h-[92vh]"
         >
           {/* En-tête */}
@@ -200,10 +207,43 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Container vidéo avec dimensions fixes strictes pour éviter tout bug d'affichage */}
-            <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
-              <div id={readerDivId} style={{ width: '260px', height: '260px', border: 'none' }} />
+            {/* Zone du scanner / Bouton d'activation mobile */}
+            <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
+              {/* Conteneur DOM requis par html5-qrcode */}
+              <div
+                id={readerDivId}
+                style={{ width: '260px', height: '260px', border: 'none' }}
+                className={!isCameraRequested ? 'hidden' : 'block'}
+              />
 
+              {/* État 1 : Attente du clic utilisateur pour demander la permission */}
+              {!isCameraRequested && !isLoadingCamera && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950 gap-3 z-20">
+                  <Camera className="w-10 h-10 text-primary/80 animate-pulse" />
+                  <p className="text-xs text-zinc-300 px-2 leading-relaxed">
+                    Sur mobile, l&apos;activation de la caméra nécessite votre autorisation directe.
+                  </p>
+                  <button
+                    onClick={handleStartCamera}
+                    type="button"
+                    className="px-4 py-2.5 bg-primary text-primary-foreground font-bold text-xs rounded-xl hover:bg-primary/90 flex items-center gap-2 shadow-lg active:scale-95 transition-all"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-current" /> Activer la caméra
+                  </button>
+                </div>
+              )}
+
+              {/* État 2 : Chargement du flux vidéo */}
+              {isLoadingCamera && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 gap-3 z-20">
+                  <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                  <p className="text-xs text-zinc-300 font-medium">
+                    Ouverture de la caméra...
+                  </p>
+                </div>
+              )}
+
+              {/* État 3 : Scan actif - Repère visuel */}
               {isScanning && !error && (
                 <div className="absolute inset-0 pointer-events-none border-2 border-primary/40 rounded-2xl flex items-center justify-center z-10">
                   <div className="w-44 h-44 border-2 border-dashed border-primary/70 rounded-xl animate-pulse" />
@@ -218,7 +258,7 @@ export function QrScannerModal({
                   <span className="leading-relaxed">{error}</span>
                 </div>
                 <button
-                  onClick={handleRetry}
+                  onClick={handleResetCamera}
                   className="self-end mt-1 px-3 py-1.5 bg-destructive text-destructive-foreground font-semibold rounded-lg text-[11px] flex items-center gap-1.5 shadow-sm active:scale-95 transition-transform"
                 >
                   <RefreshCw className="w-3 h-3" /> Réessayer
