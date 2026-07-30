@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. LECTURE BRUTE DE LA DB ET NORMALISATION STRICTE DES UTILISATEURS POUR CORRESPONDRE À APPSATE
+    // 1. LECTURE BRUTE ET NORMALISATION STRICTE DES UTILISATEURS
     const rawState = await readDB();
 
     const normalizedUsers: User[] = (rawState.users || []).map((u: any) => ({
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification ID Bench
+      // Vérification de correspondance d'ID Bench
       if (scannedBenchId && scannedBenchId !== benchId) {
         return NextResponse.json(
           {
@@ -93,7 +93,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification Token de sécurité
+      // Vérification du token de sécurité
       const expectedToken = targetBench.qrCodeToken || targetBench.id;
       const providedToken = scannedToken || payload;
 
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification Capacité du Bench
+      // Vérification de la capacité du Bench
       const parkedInBench = state.users.filter(
         (u) => u.isParked && u.benchId === benchId && u.id !== userId
       ).length;
@@ -118,7 +118,7 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      // Vérification Capacité de la Branche
+      // Vérification de la capacité de la Branche
       if (targetBranch?.capacity) {
         const branchBenchIds = new Set(
           state.benches
@@ -138,7 +138,7 @@ export async function POST(req: NextRequest) {
         }
       }
 
-      // Vérification Capacité Globale
+      // Vérification de la capacité Globale
       if (state.availableSpaces <= 0) {
         return NextResponse.json(
           { error: 'Le parking global est complet.' },
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 3. MISE À JOUR DE LA LISTE DES UTILISATEURS
-    let userIndex = state.users.findIndex((u) => u.id === userId);
+    const userIndex = state.users.findIndex((u) => u.id === userId);
     const now = new Date().toISOString();
 
     if (userIndex >= 0) {
@@ -176,7 +176,7 @@ export async function POST(req: NextRequest) {
     state.parkedUsersCount = totalParked;
     state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
 
-    // 4. ÉCRITURE PERSISTANTE EN BASE
+    // 4. ÉCRITURE PERSISTANTE EN BASE DE DONNÉES
     await writeDB(state as any);
 
     return NextResponse.json({
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
       data: state,
     });
   } catch (err: any) {
-    console.error('Erreur critique dans /api/park:', err);
+    console.error('Erreur critique dans /api/park :', err);
     return NextResponse.json(
       { error: err.message || 'Erreur serveur interne lors du changement d’état.' },
       { status: 500 }
