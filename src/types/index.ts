@@ -1,33 +1,39 @@
-export interface Branch {
-  id: string;
-  name: string;
-  capacity?: number;
-}
+export type AvailabilityStatus = 'green' | 'orange' | 'red';
 
-export interface Bench {
+export interface UserState {
   id: string;
-  branchId: string;
-  name: string;
-  capacity?: number;
-  qrCodeToken?: string;
-}
-
-export interface User {
-  id: string;
-  userId?: string;
   firstName: string;
   lastName: string;
   benchId?: string;
   isParked: boolean;
-  parkedAt?: string | number;
+}
+
+export interface BenchState {
+  id: string;
+  name: string;
+  branchId: string;
+  capacity: number;
   token?: string;
+}
+
+export interface BranchState {
+  id: string;
+  name: string;
+  capacity: number;
+}
+
+export interface AvailabilityResult {
+  status: AvailabilityStatus;
+  available: number;
+  total: number;
+  occupied: number;
 }
 
 export interface AppState {
   totalSpaces: number;
   availableSpaces: number;
   parkedUsersCount: number;
-  branches: Branch[];
-  benches: Bench[];
-  users: User[];
+  branches: BranchState[];
+  benches: BenchState[];
+  users: UserState[];
 }
