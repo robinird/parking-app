@@ -5,7 +5,7 @@ import { AppState, UserState } from '@/types';
 interface ParseResult {
   token: string;
   parsedBenchId?: string;
-}
+} 
 
 const resolveTokenAndBench = (payload: Record<string, unknown>): ParseResult => {
   let token = typeof payload.token === 'string' ? payload.token.trim() : '';
