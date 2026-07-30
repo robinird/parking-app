@@ -28,6 +28,18 @@ export interface Bench {
   qrCodeToken?: string;
 }
 
+// Interface ajoutée pour corriger l'import dans ParkingButton.tsx
+export interface SpaceAvailability {
+  isFull: boolean;
+  available?: number;
+  total?: number;
+  availableSpaces?: number;
+  totalSpaces?: number;
+  capacity?: number;
+  parkedCount?: number;
+  [key: string]: any;
+}
+
 export interface AppState {
   totalSpaces: number;
   availableSpaces: number;
