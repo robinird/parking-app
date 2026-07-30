@@ -1,24 +1,26 @@
 export interface Branch {
   id: string;
   name: string;
-  capacity?: number; // Capacité max de la branche (optionnel)
+  capacity?: number;
 }
 
 export interface Bench {
   id: string;
   branchId: string;
   name: string;
-  capacity?: number; // Capacité max du bench (optionnel)
-  qrCodeToken?: string; // Jeton unique pour la validation QR Code physique
+  capacity?: number;
+  qrCodeToken?: string;
 }
 
 export interface User {
   id: string;
+  userId?: string;
   firstName: string;
   lastName: string;
-  benchId: string;
+  benchId?: string;
   isParked: boolean;
-  parkedAt?: string; // Date et heure de stationnement
+  parkedAt?: string | number;
+  token?: string;
 }
 
 export interface AppState {
@@ -28,20 +30,4 @@ export interface AppState {
   branches: Branch[];
   benches: Bench[];
   users: User[];
-}
-
-export type AvailabilityStatus = 'green' | 'orange' | 'red' | 'unlimited';
-
-export interface SpaceAvailability {
-  occupied: number;
-  capacity?: number;
-  free?: number;
-  freePercentage?: number;
-  status: AvailabilityStatus;
-  label: string;
-}
-
-export interface QrCodePayload {
-  benchId: string;
-  token: string;
 }
