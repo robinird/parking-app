@@ -11,6 +11,75 @@ interface QrScannerModalProps {
   benchName?: string;
 }
 
+// Utilitaire d'extraction du token à partir d'une chaîne brute ou d'un objet JSON
+const extractTokenFromPayload = (rawText: string): string => {
+  const trimmed = rawText.trim();
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (parsed && typeof parsed === 'object') {
+      if (parsed.token && typeof parsed.token === 'string') {
+        return parsed.token.trim();
+      }
+      if (parsed.benchId && typeof parsed.benchId === 'string' && !parsed.token) {
+        return parsed.benchId.trim();
+      }
+    }
+  } catch {
+    // Ce n'est pas un JSON valide, on retourne la chaîne brute
+  }
+  return trimmed;
+};
+
+// Utilitaire de redimensionnement d'image via Canvas (largeur maximale 1000px)
+const resizeImageFile = (file: File, maxWidth = 1000): Promise<File> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = (event) => {
+      const img = new Image();
+      img.src = event.target?.result as string;
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file);
+              return;
+            }
+            const resizedFile = new File([blob], file.name, {
+              type: file.type || 'image/jpeg',
+              lastModified: Date.now(),
+            });
+            resolve(resizedFile);
+          },
+          file.type || 'image/jpeg',
+          0.85
+        );
+      };
+      img.onerror = () => reject(new Error('Erreur de chargement de l’image.'));
+    };
+    reader.onerror = () => reject(new Error('Erreur de lecture du fichier.'));
+  });
+};
+
 export function QrScannerModal({
   isOpen,
   onClose,
@@ -50,14 +119,16 @@ export function QrScannerModal({
     setIsCameraRequested(true);
 
     try {
-      // Import dynamique pour la compatibilité Next.js SSR
       // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
+      // Attente explicite pour garantir le rendu DOM complet et éviter le calcul 0x0
+      await new Promise((resolve) => setTimeout(resolve, 150));
+
       const element = document.getElementById(readerDivId);
       if (!element) {
-        throw new Error("Conteneur vidéo introuvable dans le DOM.");
+        throw new Error('Conteneur vidéo introuvable dans le DOM.');
       }
 
       const html5Qrcode = new Html5Qrcode(readerDivId);
@@ -69,13 +140,13 @@ export function QrScannerModal({
         aspectRatio: 1.0,
       };
 
-      // Lancement direct avec la contrainte caméra arrière
       await html5Qrcode.start(
         { facingMode: 'environment' },
         config,
         (decodedText: string) => {
           cleanupScanner().then(() => {
-            onScanSuccess(decodedText);
+            const token = extractTokenFromPayload(decodedText);
+            onScanSuccess(token);
           });
         },
         () => {
@@ -88,7 +159,6 @@ export function QrScannerModal({
     } catch (err: any) {
       console.error('Erreur critique d’activation caméra:', err);
 
-      // Repli vers la caméra par défaut (ex: webcam PC en simulateur mobile)
       try {
         if (scannerRef.current) {
           await scannerRef.current.start(
@@ -96,7 +166,8 @@ export function QrScannerModal({
             { fps: 10, qrbox: { width: 220, height: 220 } },
             (decodedText: string) => {
               cleanupScanner().then(() => {
-                onScanSuccess(decodedText);
+                const token = extractTokenFromPayload(decodedText);
+                onScanSuccess(token);
               });
             },
             () => {}
@@ -118,7 +189,6 @@ export function QrScannerModal({
     }
   };
 
-  // Lecture via photo prise par l'appareil photo natif du téléphone
   const handleNativePhotoCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const file = e.target.files[0];
@@ -127,6 +197,9 @@ export function QrScannerModal({
     setIsLoadingCamera(true);
 
     try {
+      // Redimensionnement préalable sur canvas à max 1000px
+      const resizedFile = await resizeImageFile(file, 1000);
+
       // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
@@ -134,12 +207,15 @@ export function QrScannerModal({
       const html5Qrcode = new Html5Qrcode(readerDivId);
       scannerRef.current = html5Qrcode;
 
-      const decodedText = await html5Qrcode.scanFile(file, true);
+      const decodedText = await html5Qrcode.scanFile(resizedFile, true);
       await cleanupScanner();
-      onScanSuccess(decodedText);
+      const token = extractTokenFromPayload(decodedText);
+      onScanSuccess(token);
     } catch (err) {
       console.error('Erreur lecture photo QR:', err);
-      setError("Impossible de lire un QR code valide sur cette photo. Réessayez ou utilisez la saisie manuelle.");
+      setError(
+        'Impossible de lire un QR code valide sur cette photo. Réessayez ou utilisez la saisie manuelle.'
+      );
       setIsLoadingCamera(false);
     }
   };
@@ -155,7 +231,8 @@ export function QrScannerModal({
     e.preventDefault();
     if (!manualCode.trim()) return;
     cleanupScanner().then(() => {
-      onScanSuccess(manualCode.trim());
+      const token = extractTokenFromPayload(manualCode);
+      onScanSuccess(token);
     });
   };
 
@@ -214,13 +291,20 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Zone du scanner et bouton d'activation principal */}
+            {/* Zone du scanner avec conteneur DOM toujours présent dans le DOM */}
             <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
-              {/* Conteneur DOM strict requis par html5-qrcode */}
               <div
                 id={readerDivId}
-                style={{ width: '260px', height: '260px', border: 'none' }}
-                className={!isCameraRequested ? 'hidden' : 'block'}
+                style={{
+                  width: '260px',
+                  height: '260px',
+                  border: 'none',
+                  opacity: isCameraRequested ? 1 : 0,
+                  position: isCameraRequested ? 'relative' : 'absolute',
+                  top: 0,
+                  left: 0,
+                  pointerEvents: isCameraRequested ? 'auto' : 'none',
+                }}
               />
 
               {/* État 1 : Bouton d'activation visible en permanence au lancement */}
@@ -258,7 +342,7 @@ export function QrScannerModal({
               )}
             </div>
 
-            {/* Bouton Option natif : Toujours affiché, fonctionne à 100% sur smartphone */}
+            {/* Bouton Option natif : Toujours affiché, compatible mobile */}
             <div className="w-full flex flex-col items-center gap-2">
               <input
                 ref={fileInputRef}
