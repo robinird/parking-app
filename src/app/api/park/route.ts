@@ -79,7 +79,8 @@ export async function POST(request: Request) {
         );
       }
 
-      // 2. Contrôle capacité du bench (Coalescence nulle absolue pour TS Strict)
+      // 2. Contrôle capacité du bench (Coalescence nulle absolue pour TS Strict + fallback de sécurité)
+      const benchLimit = targetBench.capacity ?? targetBench.maxSpaces ?? Infinity;
       const parkedInBench = state.users.filter(
         (u) =>
           u.isParked &&
@@ -87,16 +88,17 @@ export async function POST(request: Request) {
           u.id !== userId
       ).length;
 
-      if (parkedInBench >= targetBench.capacity) {
+      if (parkedInBench >= benchLimit) {
         return NextResponse.json(
           { error: `Le bench ${targetBench.name} a atteint sa capacité maximale.` },
           { status: 403 }
         );
       }
 
-      // 3. Contrôle capacité de la branche (Coalescence nulle absolue pour TS Strict)
+      // 3. Contrôle capacité de la branche (Coalescence nulle absolue pour TS Strict + fallback de sécurité)
       const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
       if (targetBranch) {
+        const branchLimit = targetBranch.capacity ?? targetBranch.maxSpaces ?? Infinity;
         const branchBenchIds = new Set(
           state.benches.filter((b) => b.branchId === targetBranch.id).map((b) => b.id)
         );
@@ -108,7 +110,7 @@ export async function POST(request: Request) {
             u.id !== userId
         ).length;
 
-        if (parkedInBranch >= targetBranch.capacity) {
+        if (parkedInBranch >= branchLimit) {
           return NextResponse.json(
             { error: `La branche ${targetBranch.name} est complète.` },
             { status: 403 }
