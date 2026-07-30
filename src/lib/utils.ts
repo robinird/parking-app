@@ -66,7 +66,7 @@ export function calculateBranchAvailability(
   );
 
   const occupied = users.filter(
-    (user) => branchBenchIds.has(user.benchId) && user.isParked
+    (user) => user.benchId && branchBenchIds.has(user.benchId) && user.isParked
   ).length;
 
   return getAvailabilityStatus(occupied, branch.capacity);
