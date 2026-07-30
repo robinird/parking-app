@@ -9,7 +9,7 @@ interface ParseResult {
 
 const resolveTokenAndBench = (payload: Record<string, unknown>): ParseResult => {
   let token = typeof payload.token === 'string' ? payload.token.trim() : '';
-  let parsedBenchId: string | undefined = undefined;
+  let parsedBenchId: string | undefined = undefined; 
 
   const rawQrData = typeof payload.qrCodeData === 'string' ? payload.qrCodeData.trim() : '';
   if (!token && rawQrData) {
