@@ -1,192 +1,166 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { readDB, writeDB } from '@/lib/db';
-import { AppState, User } from '@/types';
+import { AppState, UserState } from '@/types';
 
-export async function POST(req: NextRequest) {
+interface ParseResult {
+  token: string;
+  parsedBenchId?: string;
+}
+
+const resolveTokenAndBench = (payload: Record<string, unknown>): ParseResult => {
+  let token = typeof payload.token === 'string' ? payload.token.trim() : '';
+  let parsedBenchId: string | undefined = undefined;
+
+  const rawQrData = typeof payload.qrCodeData === 'string' ? payload.qrCodeData.trim() : '';
+  if (!token && rawQrData) {
+    try {
+      const parsed = JSON.parse(rawQrData);
+      if (parsed && typeof parsed === 'object') {
+        if ('token' in parsed && typeof parsed.token === 'string') {
+          token = parsed.token.trim();
+        }
+        if ('benchId' in parsed && typeof parsed.benchId === 'string') {
+          parsedBenchId = parsed.benchId.trim();
+        }
+      }
+    } catch {
+      token = rawQrData;
+    }
+  }
+
+  return { token, parsedBenchId };
+};
+
+export async function POST(request: Request) {
   try {
-    const body = await req.json();
-    const { userId, firstName, lastName, benchId, isParked, qrCodePayload, benchToken } = body;
+    const body = await request.json();
+    const { userId, firstName, lastName, benchId, isParked } = body;
 
-    if (!userId || !benchId) {
+    if (!userId || typeof isParked !== 'boolean') {
       return NextResponse.json(
-        { error: 'Paramètres userId et benchId obligatoires.' },
+        { error: 'Paramètres invalides : userId et isParked sont obligatoires.' },
         { status: 400 }
       );
     }
 
-    // 1. LECTURE BRUTE ET NORMALISATION STRICTE DES UTILISATEURS
-    const rawState = await readDB();
+    const { token, parsedBenchId } = resolveTokenAndBench(body);
+    const effectiveBenchId = (typeof benchId === 'string' && benchId) || parsedBenchId;
 
-    const normalizedUsers: User[] = (rawState.users || []).map((u: any) => ({
-      id: u.id || u.userId || 'unknown',
-      firstName: u.firstName || 'Anonyme',
-      lastName: u.lastName || '',
-      benchId: u.benchId || '',
-      isParked: Boolean(u.isParked),
-      parkedAt: u.parkedAt,
-    }));
+    const state: AppState = await readDB();
 
-    const parkedCount = normalizedUsers.filter((u) => u.isParked).length;
-    const availSpaces = Math.max(0, (rawState.totalSpaces || 0) - parkedCount);
-
-    const state: AppState = {
-      totalSpaces: rawState.totalSpaces || 50,
-      branches: rawState.branches || [],
-      benches: rawState.benches || [],
-      users: normalizedUsers,
-      parkedUsersCount: parkedCount,
-      availableSpaces: availSpaces,
-    };
-
-    const targetBench = state.benches.find((b) => b.id === benchId);
-    if (!targetBench) {
-      return NextResponse.json(
-        { error: 'Le bench spécifié est introuvable.' },
-        { status: 404 }
-      );
-    }
-
-    const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
-
-    // 2. VALIDATION SÉCURISÉE DU QR CODE LORS DU STATIONNEMENT
     if (isParked) {
-      const payload = qrCodePayload || benchToken;
-
-      if (!payload) {
+      if (!token && !effectiveBenchId) {
         return NextResponse.json(
-          { error: 'Le scan du QR Code du bench est obligatoire pour se garer.' },
+          { error: 'Un QR Code valide ou un token est requis pour se garer.' },
           { status: 400 }
         );
       }
 
-      let scannedBenchId: string | undefined;
-      let scannedToken: string | undefined;
+      const targetBench = state.benches.find((b) => {
+        if (effectiveBenchId && b.id === effectiveBenchId) return true;
+        if (b.token && b.token === token) return true;
+        if (b.id === token) return true;
+        return false;
+      });
 
-      if (typeof payload === 'string') {
-        const trimmed = payload.trim();
-        if (trimmed.startsWith('{')) {
-          try {
-            const parsed = JSON.parse(trimmed);
-            scannedBenchId = parsed.benchId;
-            scannedToken = parsed.token;
-          } catch {
-            // Non-JSON, traité comme texte brut
-          }
-        }
-
-        if (!scannedBenchId && trimmed.includes(':')) {
-          const parts = trimmed.split(':');
-          scannedBenchId = parts[0];
-          scannedToken = parts[1];
-        } else if (!scannedBenchId) {
-          scannedToken = trimmed;
-        }
-      }
-
-      // Vérification de correspondance d'ID Bench
-      if (scannedBenchId && scannedBenchId !== benchId) {
+      if (!targetBench) {
         return NextResponse.json(
-          {
-            error: `Ce QR Code appartient à un autre bench (${scannedBenchId}) et ne correspond pas à votre bench attribué (${targetBench.name}).`,
-          },
-          { status: 400 }
+          { error: 'QR code ou token invalide pour ce bench.' },
+          { status: 403 }
         );
       }
 
-      // Vérification du token de sécurité
-      const expectedToken = targetBench.qrCodeToken || targetBench.id;
-      const providedToken = scannedToken || payload;
-
-      if (providedToken !== expectedToken && providedToken !== targetBench.id) {
+      // 1. Contrôle capacité globale
+      const currentParkedCount = state.users.filter((u) => u.isParked).length;
+      if (currentParkedCount >= state.totalSpaces) {
         return NextResponse.json(
-          {
-            error: `QR Code invalide pour le bench "${targetBench.name}". Veuillez scanner le code officiel présent sur place.`,
-          },
-          { status: 400 }
+          { error: 'Le parking est globalement complet.' },
+          { status: 403 }
         );
       }
 
-      // Vérification de la capacité du Bench
+      // 2. Contrôle capacité du bench (Coalescence nulle absolue pour TS Strict)
       const parkedInBench = state.users.filter(
-        (u) => u.isParked && u.benchId === benchId && u.id !== userId
+        (u) =>
+          u.isParked &&
+          (u.benchId ?? '') === targetBench.id &&
+          u.id !== userId
       ).length;
 
-      if (targetBench.capacity && parkedInBench >= targetBench.capacity) {
+      if (parkedInBench >= targetBench.capacity) {
         return NextResponse.json(
-          { error: `Le bench "${targetBench.name}" est actuellement complet.` },
-          { status: 400 }
+          { error: `Le bench ${targetBench.name} a atteint sa capacité maximale.` },
+          { status: 403 }
         );
       }
 
-      // Vérification de la capacité de la Branche
-      if (targetBranch?.capacity) {
+      // 3. Contrôle capacité de la branche (Coalescence nulle absolue pour TS Strict)
+      const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
+      if (targetBranch) {
         const branchBenchIds = new Set(
-          state.benches
-            .filter((b) => b.branchId === targetBranch.id)
-            .map((b) => b.id)
+          state.benches.filter((b) => b.branchId === targetBranch.id).map((b) => b.id)
         );
 
         const parkedInBranch = state.users.filter(
-          (u) => u.isParked && branchBenchIds.has(u.benchId) && u.id !== userId
+          (u) =>
+            u.isParked &&
+            branchBenchIds.has(u.benchId ?? '') &&
+            u.id !== userId
         ).length;
 
         if (parkedInBranch >= targetBranch.capacity) {
           return NextResponse.json(
-            { error: `La branche "${targetBranch.name}" est actuellement complète.` },
-            { status: 400 }
+            { error: `La branche ${targetBranch.name} est complète.` },
+            { status: 403 }
           );
         }
       }
-
-      // Vérification de la capacité Globale
-      if (state.availableSpaces <= 0) {
-        return NextResponse.json(
-          { error: 'Le parking global est complet.' },
-          { status: 400 }
-        );
-      }
     }
 
-    // 3. MISE À JOUR DE LA LISTE DES UTILISATEURS
-    const userIndex = state.users.findIndex((u) => u.id === userId);
-    const now = new Date().toISOString();
+    const existingUserIndex = state.users.findIndex((u) => u.id === userId);
+    let updatedUsers: UserState[];
 
-    if (userIndex >= 0) {
-      state.users[userIndex] = {
-        ...state.users[userIndex],
-        firstName: firstName || state.users[userIndex].firstName,
-        lastName: lastName || state.users[userIndex].lastName,
-        benchId,
-        isParked,
-        parkedAt: isParked ? now : undefined,
-      };
+    if (existingUserIndex !== -1) {
+      updatedUsers = state.users.map((u, idx) => {
+        if (idx === existingUserIndex) {
+          return {
+            ...u,
+            firstName: firstName || u.firstName,
+            lastName: lastName || u.lastName,
+            benchId: effectiveBenchId || u.benchId,
+            isParked,
+          };
+        }
+        return u;
+      });
     } else {
-      state.users.push({
+      const newUser: UserState = {
         id: userId,
         firstName: firstName || 'Utilisateur',
-        lastName: lastName || 'Anonyme',
-        benchId,
+        lastName: lastName || '',
+        benchId: effectiveBenchId || state.benches[0]?.id || '',
         isParked,
-        parkedAt: isParked ? now : undefined,
-      });
+      };
+      updatedUsers = [...state.users, newUser];
     }
 
-    // Recalcul final des compteurs
-    const totalParked = state.users.filter((u) => u.isParked).length;
-    state.parkedUsersCount = totalParked;
-    state.availableSpaces = Math.max(0, state.totalSpaces - totalParked);
+    const parkedUsersCount = updatedUsers.filter((u) => u.isParked).length;
+    const availableSpaces = Math.max(0, state.totalSpaces - parkedUsersCount);
 
-    // 4. ÉCRITURE PERSISTANTE EN BASE DE DONNÉES
-    await writeDB(state as any);
+    const newState: AppState = {
+      ...state,
+      users: updatedUsers,
+      parkedUsersCount,
+      availableSpaces,
+    };
 
-    return NextResponse.json({
-      success: true,
-      data: state,
-    });
-  } catch (err: any) {
-    console.error('Erreur critique dans /api/park :', err);
+    const savedState = await writeDB(newState);
+
+    return NextResponse.json(savedState, { status: 200 });
+  } catch (error: unknown) {
+    console.error('Erreur critique dans POST /api/park:', error);
     return NextResponse.json(
-      { error: err.message || 'Erreur serveur interne lors du changement d’état.' },
+      { error: "Erreur interne du serveur lors de l'enregistrement de la place." },
       { status: 500 }
     );
   }
