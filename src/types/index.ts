@@ -2,7 +2,7 @@ export interface User {
   id: string;
   firstName: string;
   lastName: string;
-  benchId: string;
+  benchId?: string;
   isParked: boolean;
   token?: string;
   parkedAt?: string;
@@ -28,7 +28,6 @@ export interface Bench {
   qrCodeToken?: string;
 }
 
-// Interface ajoutée pour corriger l'import dans ParkingButton.tsx
 export interface SpaceAvailability {
   isFull: boolean;
   available?: number;
