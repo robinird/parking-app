@@ -10,9 +10,10 @@ import { ParkingButton } from '@/components/ParkingButton';
 import { QrScannerModal } from '@/components/QrScannerModal';
 import { calculateBenchAvailability, calculateBranchAvailability } from '@/lib/parkingUtils';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CarFront } from 'lucide-react';
+import { CarFront, AlertTriangle } from 'lucide-react';
 
-const fetcher = (url: string) => fetch(url).then(res => res.json()).then(res => res.data);
+// Correction du fetcher : la route /api/state renvoie directement le JSON global AppState
+const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const [lastName, setLastName] = useState<string>('');
   const [benchId, setBenchId] = useState<string>('');
   const [isActionLoading, setIsActionLoading] = useState(false);
+  const [actionError, setActionError] = useState<string>('');
 
   const { data: state, error, mutate } = useSWR<AppState>('/api/state', fetcher, {
     refreshInterval: 5000,
@@ -87,10 +89,11 @@ export default function Dashboard() {
     else if (isBranchFull) statusMessage = `Complet ! Il n'y a plus de places disponibles pour la branche ${currentUserBranch?.name}.`;
   }
 
-  // Exécution réelle de l'action vers l'API
-  const executeParkingAction = async (targetParkedState: boolean, qrCodeData?: string) => {
+  // Exécution réelle de l'action vers l'API /api/park
+  const executeParkingAction = async (targetParkedState: boolean, token?: string) => {
     if (!state) return;
     setIsActionLoading(true);
+    setActionError('');
 
     // Mise à jour optimiste du state SWR
     mutate({
@@ -101,7 +104,7 @@ export default function Dashboard() {
     }, false);
 
     try {
-      await fetch('/api/park', {
+      const response = await fetch('/api/park', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,33 +113,37 @@ export default function Dashboard() {
           lastName,
           benchId,
           isParked: targetParkedState,
-          qrCodeData: qrCodeData || ''
+          token: token || ''
         })
       });
-      mutate();
-    } catch (e) {
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `Erreur serveur (${response.status})`);
+      }
+
+      await mutate();
+    } catch (e: any) {
       console.error("Erreur lors de l'appel /api/park :", e);
-      mutate();
+      setActionError(e.message || "Une erreur est survenue lors de la synchronisation de la place.");
+      await mutate();
     } finally {
       setIsActionLoading(false);
     }
   };
 
-  // Gestionnaire du clic principal
   const handleParkingButtonClick = () => {
+    setActionError('');
     if (isParked) {
-      // Pour libérer la place, pas besoin de scanner
       executeParkingAction(false);
     } else {
-      // Pour se garer, on ouvre obligatoirement la modale de scan QR
       setIsScannerOpen(true);
     }
   };
 
-  // Succès du scan QR
-  const handleScanSuccess = (qrCodeData: string) => {
+  const handleScanSuccess = (token: string) => {
     setIsScannerOpen(false);
-    executeParkingAction(true, qrCodeData);
+    executeParkingAction(true, token);
   };
 
   if (!isClient || !state) {
@@ -169,7 +176,6 @@ export default function Dashboard() {
         onUpdate={mutate}
       />
 
-      {/* Rendu du QrScannerModal */}
       <QrScannerModal
         isOpen={isScannerOpen}
         onClose={() => setIsScannerOpen(false)}
@@ -187,7 +193,7 @@ export default function Dashboard() {
               animate={{ opacity: 1, y: 0 }}
               className="flex flex-col items-center w-full max-w-md"
             >
-              <div className="mb-12 text-center">
+              <div className="mb-8 text-center">
                 <h2 className="text-2xl font-light mb-1">
                   Bonjour, <span className="font-bold">{firstName}</span>
                 </h2>
@@ -195,6 +201,13 @@ export default function Dashboard() {
                   {statusMessage}
                 </p>
               </div>
+
+              {actionError && (
+                <div className="mb-6 w-full p-3.5 bg-destructive/10 border border-destructive/30 rounded-xl flex items-center gap-2.5 text-destructive text-xs">
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                  <span className="font-medium">{actionError}</span>
+                </div>
+              )}
 
               <ParkingButton 
                 isParked={isParked} 
