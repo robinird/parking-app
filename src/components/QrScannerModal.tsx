@@ -22,7 +22,7 @@ const extractTokenFromPayload = (rawText: string): string => {
       if ('benchId' in parsed && typeof parsed.benchId === 'string' && !parsed.token) {
         return parsed.benchId.trim();
       }
-    }
+    } 
   } catch {
     // Échec du parsing JSON, on retourne la chaîne brute
   }
