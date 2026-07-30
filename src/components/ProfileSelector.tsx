@@ -1,7 +1,9 @@
+"use client";
+
 import { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppState } from '@/types';
-import { User, LogIn } from 'lucide-react';
+import { User, LogIn, Camera, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 
 interface ProfileSelectorProps {
   state: AppState;
@@ -13,11 +15,32 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
   const [lastName, setLastName] = useState('');
   const [selectedBranch, setSelectedBranch] = useState('');
   const [selectedBench, setSelectedBench] = useState('');
+  const [cameraStatus, setCameraStatus] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle');
 
   const availableBenches = useMemo(() => {
     if (!selectedBranch) return [];
     return state.benches.filter(b => b.branchId === selectedBranch);
   }, [selectedBranch, state.benches]);
+
+  const handleRequestCameraPermission = async () => {
+    setCameraStatus('loading');
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment' },
+        });
+      } catch {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      }
+      // Arrêt immédiat des pistes pour libérer la caméra une fois la permission accordée
+      stream.getTracks().forEach(track => track.stop());
+      setCameraStatus('granted');
+    } catch (err) {
+      console.error("Permission caméra refusée :", err);
+      setCameraStatus('denied');
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -39,17 +62,19 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
         <motion.div 
           initial={{ scale: 0.9, y: 20 }}
           animate={{ scale: 1, y: 0 }}
-          className="bg-card border border-border w-full max-w-md rounded-3xl p-6 shadow-2xl glass-dark"
+          className="bg-card border border-border w-full max-w-md rounded-3xl p-6 shadow-2xl glass-dark max-h-[90vh] overflow-y-auto"
         >
-          <div className="flex flex-col items-center mb-8">
+          <div className="flex flex-col items-center mb-6">
             <div className="w-16 h-16 bg-primary/20 rounded-full flex items-center justify-center mb-4">
               <User className="w-8 h-8 text-primary" />
             </div>
             <h2 className="text-2xl font-bold text-center">Bienvenue !</h2>
-            <p className="text-muted-foreground text-center mt-2 text-sm">Veuillez renseigner votre profil pour accéder à la réservation de parking.</p>
+            <p className="text-muted-foreground text-center mt-2 text-sm">
+              Veuillez renseigner votre profil pour accéder à la réservation de parking.
+            </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <label className="text-sm font-medium text-foreground ml-1">Prénom</label>
@@ -114,10 +139,53 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
               </motion.div>
             )}
 
+            {/* Section Autorisation Caméra Anticipée */}
+            <div className="pt-2">
+              <div className="p-3.5 rounded-xl border border-border/60 bg-muted/20 flex flex-col gap-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                    <Camera className="w-4 h-4 text-primary" />
+                    Accès rapide au QR Scanner
+                  </span>
+                  {cameraStatus === 'granted' && (
+                    <span className="text-[11px] font-bold text-emerald-500 flex items-center gap-1">
+                      <CheckCircle2 className="w-3.5 h-3.5" /> Autorisé
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Autorisez la caméra dès maintenant pour scanner instantanément votre place sans blocage mobile.
+                </p>
+                {cameraStatus !== 'granted' && (
+                  <button
+                    type="button"
+                    onClick={handleRequestCameraPermission}
+                    disabled={cameraStatus === 'loading'}
+                    className="w-full py-2 px-3 bg-secondary hover:bg-secondary/80 text-secondary-foreground text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2 border border-border"
+                  >
+                    {cameraStatus === 'loading' ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                        Vérification...
+                      </>
+                    ) : (
+                      "Autoriser l'accès caméra"
+                    )}
+                  </button>
+                )}
+                {cameraStatus === 'denied' && (
+                  <p className="text-[11px] text-destructive flex items-center gap-1 font-medium">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    Refusé. Vous pourrez utiliser le mode photo natif.
+                  </p>
+                )}
+              </div>
+            </div>
+
             <button
               type="submit"
               disabled={!isFormValid}
-              className={`w-full mt-6 flex items-center justify-center gap-2 py-4 rounded-xl font-bold transition-all ${
+              className={`w-full mt-4 flex items-center justify-center gap-2 py-4 rounded-xl font-bold transition-all ${
                 isFormValid 
                   ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg shadow-primary/20 active:scale-[0.98]' 
                   : 'bg-muted text-muted-foreground cursor-not-allowed'
