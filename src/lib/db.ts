@@ -1,125 +1,124 @@
-import fs from 'fs/promises';
-import path from 'path';
+import { AppState, User, Branch, Bench } from '@/types';
 
-// Define the shape of our database
-export interface Branch {
-  id: string;
-  name: string;
-}
+const REDIS_KEY = 'parking_state';
 
-export interface Bench {
-  id: string;
-  branchId: string;
-  name: string;
-}
-
-export interface User {
-  id: string;
-  name: string;
-  benchId: string;
-  isParked: boolean;
-  parkedAt?: string;
-}
-
-export interface DatabaseState {
-  totalSpaces: number;
-  branches: Branch[];
-  benches: Bench[];
-  users: User[];
-}
-
-// Ensure we get the correct path whether in dev or production
-const getDbPath = () => {
-  return path.join(process.cwd(), 'src', 'data', 'db.json');
+const DEFAULT_STATE: AppState = {
+  totalSpaces: 50,
+  availableSpaces: 50,
+  parkedUsersCount: 0,
+  branches: [],
+  benches: [],
+  users: [],
 };
 
-// In-memory mutex to prevent race conditions during concurrent API requests
-let isLocked = false;
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const acquireLock = async () => {
-  while (isLocked) {
-    await wait(10); // Wait 10ms and try again
-  }
-  isLocked = true;
-};
-
-const releaseLock = () => {
-  isLocked = false;
-};
-
-export async function readDB(): Promise<DatabaseState> {
-  const dbPath = getDbPath();
-  try {
-    const data = await fs.readFile(dbPath, 'utf8');
-    return JSON.parse(data) as DatabaseState;
-  } catch (error) {
-    console.error('Error reading db.json:', error);
-    // Return a default state if file doesn't exist or is corrupted
-    return {
-      totalSpaces: 50,
-      branches: [],
-      benches: [],
-      users: []
-    };
-  }
+function getRedisCredentials() {
+  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
+  return { url, token };
 }
 
-export async function writeDB(state: DatabaseState): Promise<void> {
-  const dbPath = getDbPath();
-  const dirPath = path.dirname(dbPath);
-  
-  try {
-    await acquireLock();
-    // Ensure directory exists
-    await fs.mkdir(dirPath, { recursive: true });
-    // Write atomically using a temporary file (optional but safer)
-    const tempPath = `${dbPath}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(state, null, 2), 'utf8');
-    await fs.rename(tempPath, dbPath);
-  } catch (error) {
-    console.error('Error writing db.json:', error);
-    throw new Error('Failed to write database');
-  } finally {
-    releaseLock();
-  }
-}
+export async function readDB(): Promise<AppState> {
+  const { url, token } = getRedisCredentials();
 
-// Helper functions for specific operations
-export async function toggleParking(userId: string, name: string, benchId: string, isParked: boolean): Promise<DatabaseState> {
-  await acquireLock();
+  if (!url || !token) {
+    console.warn('Variables d’environnement Redis non configurées.');
+    return DEFAULT_STATE;
+  }
+
   try {
-    // We read while holding the lock to ensure state consistency
-    const state = await readDB();
-    const userIndex = state.users.findIndex(u => u.id === userId);
-    
-    if (userIndex >= 0) {
-      state.users[userIndex].isParked = isParked;
-      state.users[userIndex].name = name; // Update name in case it changed
-      state.users[userIndex].benchId = benchId;
-      if (isParked) {
-        state.users[userIndex].parkedAt = new Date().toISOString();
-      } else {
-        delete state.users[userIndex].parkedAt;
-      }
-    } else {
-      // New user
-      state.users.push({
-        id: userId,
-        name,
-        benchId,
-        isParked,
-        parkedAt: isParked ? new Date().toISOString() : undefined
-      });
+    const res = await fetch(`${url}/get/${REDIS_KEY}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+
+    if (!res.ok) {
+      console.error('Erreur HTTP Redis readDB:', res.statusText);
+      return DEFAULT_STATE;
     }
 
-    // Write back
-    const tempPath = `${getDbPath()}.tmp`;
-    await fs.writeFile(tempPath, JSON.stringify(state, null, 2), 'utf8');
-    await fs.rename(tempPath, getDbPath());
-    
-    return state;
-  } finally {
-    releaseLock();
+    const data = await res.json();
+    if (!data || data.result === null || data.result === undefined) {
+      return DEFAULT_STATE;
+    }
+
+    const raw = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+
+    const users: User[] = Array.isArray(raw.users)
+      ? raw.users.map((u: any) => ({
+          id: String(u.id || u.userId || ''),
+          firstName: String(u.firstName || 'Ancien'),
+          lastName: String(u.lastName || 'Utilisateur'),
+          isParked: Boolean(u.isParked),
+          benchId: u.benchId ? String(u.benchId) : undefined,
+          parkedAt: u.parkedAt ? String(u.parkedAt) : undefined,
+        }))
+      : [];
+
+    const branches: Branch[] = Array.isArray(raw.branches)
+      ? raw.branches.map((b: any) => ({
+          id: String(b.id),
+          name: String(b.name || ''),
+          capacity: typeof b.capacity === 'number' && !isNaN(b.capacity) ? b.capacity : undefined,
+        }))
+      : [];
+
+    const benches: Bench[] = Array.isArray(raw.benches)
+      ? raw.benches.map((b: any) => ({
+          id: String(b.id),
+          branchId: String(b.branchId),
+          name: String(b.name || ''),
+          capacity: typeof b.capacity === 'number' && !isNaN(b.capacity) ? b.capacity : undefined,
+          qrCodeToken: b.qrCodeToken ? String(b.qrCodeToken) : `tok_${Math.random().toString(36).substring(2, 9)}`,
+        }))
+      : [];
+
+    const totalSpaces = typeof raw.totalSpaces === 'number' ? raw.totalSpaces : 50;
+    const parkedUsersCount = users.filter((u) => u.isParked).length;
+    const availableSpaces = Math.max(0, totalSpaces - parkedUsersCount);
+
+    return {
+      totalSpaces,
+      availableSpaces,
+      parkedUsersCount,
+      branches,
+      benches,
+      users,
+    };
+  } catch (err) {
+    console.error('Erreur globale lors de la lecture DB:', err);
+    return DEFAULT_STATE;
   }
+}
+
+export async function writeDB(state: AppState): Promise<boolean> {
+  const { url, token } = getRedisCredentials();
+
+  if (!url || !token) {
+    throw new Error('Variables d’environnement Redis manquantes (UPSTASH_REDIS_REST_URL/TOKEN ou KV_REST_API_URL/TOKEN).');
+  }
+
+  const parkedUsersCount = state.users.filter((u) => u.isParked).length;
+  const availableSpaces = Math.max(0, state.totalSpaces - parkedUsersCount);
+
+  const payload: AppState = {
+    ...state,
+    parkedUsersCount,
+    availableSpaces,
+  };
+
+  const res = await fetch(`${url}/set/${REDIS_KEY}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Échec de l’écriture Redis (${res.status}): ${errorText}`);
+  }
+
+  return true;
 }
