@@ -7,6 +7,7 @@ import { Header } from '@/components/Header';
 import { ProfileSelector } from '@/components/ProfileSelector';
 import { AdminModal } from '@/components/AdminModal';
 import { ParkingButton } from '@/components/ParkingButton';
+import { QrScannerModal } from '@/components/QrScannerModal';
 import { calculateBenchAvailability, calculateBranchAvailability } from '@/lib/parkingUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CarFront } from 'lucide-react';
@@ -16,6 +17,7 @@ const fetcher = (url: string) => fetch(url).then(res => res.json()).then(res => 
 export default function Dashboard() {
   const [isClient, setIsClient] = useState(false);
   const [isAdminOpen, setIsAdminOpen] = useState(false);
+  const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [userId, setUserId] = useState<string>('');
   const [firstName, setFirstName] = useState<string>('');
   const [lastName, setLastName] = useState<string>('');
@@ -85,17 +87,17 @@ export default function Dashboard() {
     else if (isBranchFull) statusMessage = `Complet ! Il n'y a plus de places disponibles pour la branche ${currentUserBranch?.name}.`;
   }
 
-  const toggleParking = async () => {
+  // Exécution réelle de l'action vers l'API
+  const executeParkingAction = async (targetParkedState: boolean, qrCodeData?: string) => {
     if (!state) return;
-    if (!isParked && isBlockedFromParking) return;
-
     setIsActionLoading(true);
 
+    // Mise à jour optimiste du state SWR
     mutate({
       ...state,
-      availableSpaces: state.availableSpaces + (isParked ? 1 : -1),
-      parkedUsersCount: state.parkedUsersCount + (isParked ? -1 : 1),
-      users: state.users.map(u => u.id === userId ? { ...u, isParked: !isParked } : u)
+      availableSpaces: state.availableSpaces + (targetParkedState ? -1 : 1),
+      parkedUsersCount: state.parkedUsersCount + (targetParkedState ? 1 : -1),
+      users: state.users.map(u => u.id === userId ? { ...u, isParked: targetParkedState } : u)
     }, false);
 
     try {
@@ -107,16 +109,34 @@ export default function Dashboard() {
           firstName,
           lastName,
           benchId,
-          isParked: !isParked
+          isParked: targetParkedState,
+          qrCodeData: qrCodeData || ''
         })
       });
       mutate();
     } catch (e) {
-      console.error(e);
+      console.error("Erreur lors de l'appel /api/park :", e);
       mutate();
     } finally {
       setIsActionLoading(false);
     }
+  };
+
+  // Gestionnaire du clic principal
+  const handleParkingButtonClick = () => {
+    if (isParked) {
+      // Pour libérer la place, pas besoin de scanner
+      executeParkingAction(false);
+    } else {
+      // Pour se garer, on ouvre obligatoirement la modale de scan QR
+      setIsScannerOpen(true);
+    }
+  };
+
+  // Succès du scan QR
+  const handleScanSuccess = (qrCodeData: string) => {
+    setIsScannerOpen(false);
+    executeParkingAction(true, qrCodeData);
   };
 
   if (!isClient || !state) {
@@ -149,6 +169,14 @@ export default function Dashboard() {
         onUpdate={mutate}
       />
 
+      {/* Rendu du QrScannerModal */}
+      <QrScannerModal
+        isOpen={isScannerOpen}
+        onClose={() => setIsScannerOpen(false)}
+        onScanSuccess={handleScanSuccess}
+        benchName={currentUserBench?.name}
+      />
+
       <main className="flex-1 flex flex-col items-center justify-center p-6 relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-primary/5 rounded-full blur-[100px] -z-10 pointer-events-none" />
         
@@ -168,11 +196,10 @@ export default function Dashboard() {
                 </p>
               </div>
 
-              {/* CORRECTION DU BUG : On transmet toutes les props au ParkingButton */}
               <ParkingButton 
                 isParked={isParked} 
                 isLoading={isActionLoading} 
-                onClick={toggleParking} 
+                onClick={handleParkingButtonClick} 
                 disabled={disabled}
                 user={currentUserState || {
                   id: userId,
