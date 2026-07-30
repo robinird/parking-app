@@ -4,30 +4,29 @@ export interface User {
   lastName: string;
   benchId: string;
   isParked: boolean;
-  token?: string;
-  parkedAt?: string;
 }
 
-export interface Branch {
-  id: string;
-  name: string;
-  maxSpaces?: number;
-}
+// Alias de compatibilité pour éviter l'erreur "has no exported member 'UserState'"
+export type UserState = User;
 
 export interface Bench {
   id: string;
   name: string;
   branchId: string;
-  maxSpaces?: number;
   token?: string;
   qrCodeToken?: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
 }
 
 export interface AppState {
   totalSpaces: number;
   availableSpaces: number;
   parkedUsersCount: number;
-  branches: Branch[];
   benches: Bench[];
+  branches: Branch[];
   users: User[];
 }
