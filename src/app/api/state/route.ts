@@ -1,75 +1,42 @@
 import { NextResponse } from 'next/server';
+import { AppState } from '@/types';
 
-export const dynamic = 'force-dynamic'; // Ensure no caching
-
-// --- État par défaut pour débloquer l'application au 1er lancement ---
-const DEFAULT_STATE = {
-  totalSpaces: 20,
+// État initial en mémoire (en production, relier à une base de données ou KV Vercel)
+let globalState: AppState = {
+  totalSpaces: 50,
+  availableSpaces: 50,
+  parkedUsersCount: 0,
   branches: [
-    { id: "branch-default", name: "Branche Générique" }
+    { id: 'branch-1', name: 'Tech & Engineering', quota: 30 },
+    { id: 'branch-2', name: 'Business & Sales', quota: 20 },
   ],
   benches: [
-    { id: "bench-default", name: "Bench Générique", branchId: "branch-default" }
+    { id: 'bench-1', name: 'Web Dev Team', branchId: 'branch-1', allocatedSpaces: 15 },
+    { id: 'bench-2', name: 'Mobile Team', branchId: 'branch-1', allocatedSpaces: 15 },
+    { id: 'bench-3', name: 'Marketing Team', branchId: 'branch-2', allocatedSpaces: 10 },
+    { id: 'bench-4', name: 'Sales Team', branchId: 'branch-2', allocatedSpaces: 10 },
   ],
-  users: []
+  users: [],
 };
 
-// --- Utilitaires de connexion à la base de données Redis ---
-function getRedisCredentials() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  
-  if (!url || !token) {
-    throw new Error("Variables d'environnement Redis (Upstash/KV) manquantes.");
-  }
-  return { url, token };
-}
-
-async function getRedisState() {
-  try {
-    const { url, token } = getRedisCredentials();
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(["GET", "parking_state"]),
-      cache: 'no-store'
-    });
-    
-    const data = await res.json();
-    if (data && data.result) {
-      return typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
-    }
-  } catch (e) {
-    console.error("Erreur de lecture Redis:", e);
-  }
-  
-  // Retourne l'état par défaut (avec branche et bench) si la base est vide
-  return DEFAULT_STATE;
-}
-// -----------------------------------------------------------
-
 export async function GET() {
+  return NextResponse.json({
+    success: true,
+    data: globalState,
+  });
+}
+
+export async function POST(req: Request) {
   try {
-    const state = await getRedisState();
-    
-    const parkedUsersCount = state.users.filter((u: any) => u.isParked).length;
-    
-    return NextResponse.json({
-      success: true,
-      data: {
-        totalSpaces: state.totalSpaces,
-        availableSpaces: Math.max(0, state.totalSpaces - parkedUsersCount),
-        parkedUsersCount,
-        branches: state.branches || DEFAULT_STATE.branches,
-        benches: state.benches || DEFAULT_STATE.benches,
-        users: state.users || []
-      }
-    });
+    const body = await req.json();
+    if (body && typeof body.totalSpaces === 'number') {
+      globalState = { ...globalState, ...body };
+    }
+    return NextResponse.json({ success: true, data: globalState });
   } catch (error) {
-    console.error('Error in GET /api/state:', error);
-    return NextResponse.json({ success: false, error: 'Internal Server Error' }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: 'Données invalides' },
+      { status: 400 }
+    );
   }
 }
