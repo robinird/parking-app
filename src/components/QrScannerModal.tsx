@@ -11,26 +11,24 @@ interface QrScannerModalProps {
   benchName?: string;
 }
 
-// Utilitaire d'extraction du token à partir d'une chaîne brute ou d'un objet JSON
 const extractTokenFromPayload = (rawText: string): string => {
   const trimmed = rawText.trim();
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object') {
-      if (parsed.token && typeof parsed.token === 'string') {
+      if ('token' in parsed && typeof parsed.token === 'string') {
         return parsed.token.trim();
       }
-      if (parsed.benchId && typeof parsed.benchId === 'string' && !parsed.token) {
+      if ('benchId' in parsed && typeof parsed.benchId === 'string' && !parsed.token) {
         return parsed.benchId.trim();
       }
     }
   } catch {
-    // Ce n'est pas un JSON valide, on retourne la chaîne brute
+    // Échec du parsing JSON, on retourne la chaîne brute
   }
   return trimmed;
 };
 
-// Utilitaire de redimensionnement d'image via Canvas (largeur maximale 1000px)
 const resizeImageFile = (file: File, maxWidth = 1000): Promise<File> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -119,11 +117,9 @@ export function QrScannerModal({
     setIsCameraRequested(true);
 
     try {
-      // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
-      // Attente explicite pour garantir le rendu DOM complet et éviter le calcul 0x0
       await new Promise((resolve) => setTimeout(resolve, 150));
 
       const element = document.getElementById(readerDivId);
@@ -149,14 +145,12 @@ export function QrScannerModal({
             onScanSuccess(token);
           });
         },
-        () => {
-          // Ignorer les frames non décodées
-        }
+        () => {}
       );
 
       setIsScanning(true);
       setIsLoadingCamera(false);
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Erreur critique d’activation caméra:', err);
 
       try {
@@ -197,10 +191,7 @@ export function QrScannerModal({
     setIsLoadingCamera(true);
 
     try {
-      // Redimensionnement préalable sur canvas à max 1000px
       const resizedFile = await resizeImageFile(file, 1000);
-
-      // @ts-ignore
       const html5QrcodeModule = await import('html5-qrcode');
       const Html5Qrcode = html5QrcodeModule.Html5Qrcode;
 
@@ -260,7 +251,6 @@ export function QrScannerModal({
           transition={{ duration: 0.15, ease: 'easeOut' }}
           className="bg-card border border-border w-full max-w-md rounded-3xl shadow-2xl relative overflow-hidden flex flex-col my-auto max-h-[92vh]"
         >
-          {/* En-tête */}
           <div className="flex items-center justify-between p-4 sm:p-5 border-b border-border bg-muted/30 shrink-0">
             <div className="flex items-center gap-2">
               <Camera className="w-5 h-5 text-primary shrink-0" />
@@ -280,7 +270,6 @@ export function QrScannerModal({
             </button>
           </div>
 
-          {/* Corps de la modale */}
           <div className="p-4 sm:p-6 flex flex-col items-center gap-4 overflow-y-auto">
             {benchName && (
               <div className="text-center w-full bg-muted/20 py-2 px-3 rounded-xl border border-border/50">
@@ -291,7 +280,6 @@ export function QrScannerModal({
               </div>
             )}
 
-            {/* Zone du scanner avec conteneur DOM toujours présent dans le DOM */}
             <div className="relative w-[260px] h-[260px] bg-black rounded-2xl overflow-hidden shadow-inner flex flex-col items-center justify-center border-2 border-primary/30 shrink-0 mx-auto">
               <div
                 id={readerDivId}
@@ -307,7 +295,6 @@ export function QrScannerModal({
                 }}
               />
 
-              {/* État 1 : Bouton d'activation visible en permanence au lancement */}
               {!isCameraRequested && !isLoadingCamera && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center p-4 text-center bg-zinc-950 gap-3 z-20">
                   <Camera className="w-10 h-10 text-primary/80 animate-pulse" />
@@ -324,7 +311,6 @@ export function QrScannerModal({
                 </div>
               )}
 
-              {/* État 2 : Chargement du flux vidéo */}
               {isLoadingCamera && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center bg-zinc-950 gap-3 z-20">
                   <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -334,7 +320,6 @@ export function QrScannerModal({
                 </div>
               )}
 
-              {/* État 3 : Scan actif */}
               {isScanning && !error && (
                 <div className="absolute inset-0 pointer-events-none border-2 border-primary/40 rounded-2xl flex items-center justify-center z-10">
                   <div className="w-44 h-44 border-2 border-dashed border-primary/70 rounded-xl animate-pulse" />
@@ -342,7 +327,6 @@ export function QrScannerModal({
               )}
             </div>
 
-            {/* Bouton Option natif : Toujours affiché, compatible mobile */}
             <div className="w-full flex flex-col items-center gap-2">
               <input
                 ref={fileInputRef}
@@ -381,7 +365,6 @@ export function QrScannerModal({
               Positionnez le QR code dans le cadre ou utilisez le mode natif si la vidéo est bloquée.
             </p>
 
-            {/* Saisie manuelle de secours */}
             <form onSubmit={handleManualSubmit} className="w-full pt-3 border-t border-border flex flex-col gap-2">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 <Keyboard className="w-3.5 h-3.5" /> Saisie manuelle de secours
