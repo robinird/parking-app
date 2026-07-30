@@ -28,8 +28,9 @@ export interface Bench {
   qrCodeToken?: string;
 }
 
+// isFull est désormais optionnel (?) pour éviter de bloquer parkingUtils.ts
 export interface SpaceAvailability {
-  isFull: boolean;
+  isFull?: boolean;
   available?: number;
   total?: number;
   availableSpaces?: number;
