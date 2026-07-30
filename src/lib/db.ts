@@ -1,7 +1,5 @@
 import { AppState, User, Branch, Bench } from '@/types';
 
-const REDIS_KEY = 'parking_state';
-
 const DEFAULT_STATE: AppState = {
   totalSpaces: 50,
   availableSpaces: 50,
@@ -11,114 +9,119 @@ const DEFAULT_STATE: AppState = {
   users: [],
 };
 
-function getRedisCredentials() {
-  const url = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
-  const token = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
-  return { url, token };
-}
+const REDIS_URL = process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL;
+const REDIS_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN;
 
 export async function readDB(): Promise<AppState> {
-  const { url, token } = getRedisCredentials();
-
-  if (!url || !token) {
-    console.warn('Variables d’environnement Redis non configurées.');
+  if (!REDIS_URL || !REDIS_TOKEN) {
+    console.warn('[DB] Variables Redis/KV non configurées. Utilisation de l’état par défaut.');
     return DEFAULT_STATE;
   }
 
   try {
-    const res = await fetch(`${url}/get/${REDIS_KEY}`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const res = await fetch(`${REDIS_URL}/get/parking_state`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+      },
       cache: 'no-store',
     });
 
     if (!res.ok) {
-      console.error('Erreur HTTP Redis readDB:', res.statusText);
-      return DEFAULT_STATE;
+      throw new Error(`[DB] Erreur HTTP Redis GET: ${res.status}`);
     }
 
     const data = await res.json();
-    if (!data || data.result === null || data.result === undefined) {
+    if (!data.result) {
       return DEFAULT_STATE;
     }
 
-    const raw = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+    const parsed: Partial<AppState> =
+      typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
 
-    const users: User[] = Array.isArray(raw.users)
-      ? raw.users.map((u: any) => ({
-          id: String(u.id || u.userId || ''),
-          firstName: String(u.firstName || 'Ancien'),
-          lastName: String(u.lastName || 'Utilisateur'),
-          isParked: Boolean(u.isParked),
+    const users: User[] = Array.isArray(parsed.users)
+      ? parsed.users.map((u: any) => ({
+          id: String(u.id || u.userId || `usr_${Math.random()}`),
+          userId: u.userId ? String(u.userId) : String(u.id || ''),
+          firstName: String(u.firstName || 'Utilisateur'),
+          lastName: String(u.lastName || 'Anonyme'),
           benchId: u.benchId ? String(u.benchId) : undefined,
-          parkedAt: u.parkedAt ? String(u.parkedAt) : undefined,
+          isParked: Boolean(u.isParked),
+          parkedAt: u.parkedAt,
+          token: u.token,
         }))
       : [];
 
-    const branches: Branch[] = Array.isArray(raw.branches)
-      ? raw.branches.map((b: any) => ({
+    const parkedUsersCount = users.filter((u) => u.isParked).length;
+    const totalSpaces = typeof parsed.totalSpaces === 'number' ? parsed.totalSpaces : 50;
+
+    const branches: Branch[] = Array.isArray(parsed.branches)
+      ? parsed.branches.map((b: any) => ({
           id: String(b.id),
-          name: String(b.name || ''),
+          name: String(b.name || 'Branche sans nom'),
           capacity: typeof b.capacity === 'number' && !isNaN(b.capacity) ? b.capacity : undefined,
         }))
       : [];
 
-    const benches: Bench[] = Array.isArray(raw.benches)
-      ? raw.benches.map((b: any) => ({
+    const benches: Bench[] = Array.isArray(parsed.benches)
+      ? parsed.benches.map((b: any) => ({
           id: String(b.id),
           branchId: String(b.branchId),
-          name: String(b.name || ''),
+          name: String(b.name || 'Bench sans nom'),
           capacity: typeof b.capacity === 'number' && !isNaN(b.capacity) ? b.capacity : undefined,
-          qrCodeToken: b.qrCodeToken ? String(b.qrCodeToken) : `tok_${Math.random().toString(36).substring(2, 9)}`,
+          qrCodeToken: b.qrCodeToken || `tok_${b.id}_${Math.random().toString(36).substring(2, 7)}`,
         }))
       : [];
-
-    const totalSpaces = typeof raw.totalSpaces === 'number' ? raw.totalSpaces : 50;
-    const parkedUsersCount = users.filter((u) => u.isParked).length;
-    const availableSpaces = Math.max(0, totalSpaces - parkedUsersCount);
 
     return {
       totalSpaces,
-      availableSpaces,
+      availableSpaces: Math.max(0, totalSpaces - parkedUsersCount),
       parkedUsersCount,
       branches,
       benches,
       users,
     };
-  } catch (err) {
-    console.error('Erreur globale lors de la lecture DB:', err);
+  } catch (error) {
+    console.error('[DB] Erreur lors de la lecture DB :', error);
     return DEFAULT_STATE;
   }
 }
 
 export async function writeDB(state: AppState): Promise<boolean> {
-  const { url, token } = getRedisCredentials();
-
-  if (!url || !token) {
-    throw new Error('Variables d’environnement Redis manquantes (UPSTASH_REDIS_REST_URL/TOKEN ou KV_REST_API_URL/TOKEN).');
+  if (!REDIS_URL || !REDIS_TOKEN) {
+    console.error('[DB] Impossible d’écrire : variables Redis/KV manquantes.');
+    return false;
   }
 
-  const parkedUsersCount = state.users.filter((u) => u.isParked).length;
-  const availableSpaces = Math.max(0, state.totalSpaces - parkedUsersCount);
+  try {
+    const parkedUsersCount = state.users.filter((u) => Boolean(u.isParked)).length;
+    
+    const normalizedState: AppState = {
+      totalSpaces: Number(state.totalSpaces),
+      availableSpaces: Math.max(0, Number(state.totalSpaces) - parkedUsersCount),
+      parkedUsersCount,
+      branches: Array.isArray(state.branches) ? state.branches : [],
+      benches: Array.isArray(state.benches) ? state.benches : [],
+      users: Array.isArray(state.users) ? state.users : [],
+    };
 
-  const payload: AppState = {
-    ...state,
-    parkedUsersCount,
-    availableSpaces,
-  };
+    const res = await fetch(`${REDIS_URL}/set/parking_state`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${REDIS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(normalizedState),
+      cache: 'no-store',
+    });
 
-  const res = await fetch(`${url}/set/${REDIS_KEY}`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
+    if (!res.ok) {
+      throw new Error(`[DB] Erreur HTTP Redis SET: ${res.status}`);
+    }
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`Échec de l’écriture Redis (${res.status}): ${errorText}`);
+    return true;
+  } catch (error) {
+    console.error('[DB] Erreur lors de l’écriture DB :', error);
+    return false;
   }
-
-  return true;
 }
