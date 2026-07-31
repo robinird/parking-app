@@ -44,20 +44,21 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
 
   const [qrModalBench, setQrModalBench] = useState<Bench | null>(null);
 
-  // Correction : On ignore "state" dans les dépendances pour éviter qu'un polling SWR
-  // en arrière-plan n'écrase les modifications de l'utilisateur en cours de saisie !
+  // Initialisation correcte de l'état local du modal uniquement à l'ouverture (évite l'écrasement par le SWR en arrière-plan)
   useEffect(() => {
     if (isOpen && state) {
       setTotalSpaces(Number(state.totalSpaces) || 0);
-      setBranches([...(state.branches || [])]);
+      setBranches(state.branches ? JSON.parse(JSON.stringify(state.branches)) : []);
       setBenches(
-        (state.benches || []).map((b) => ({
-          ...b,
-          qrCodeToken: b.qrCodeToken || `token_${b.id}_${Math.random().toString(36).substring(2, 7)}`,
-        }))
+        state.benches
+          ? JSON.parse(JSON.stringify(state.benches)).map((b: Bench) => ({
+              ...b,
+              qrCodeToken: b.qrCodeToken || `token_${b.id}_${Math.random().toString(36).substring(2, 7)}`,
+            }))
+          : []
       );
-      if ((state.branches || []).length > 0 && !selectedBranchId) {
-        setSelectedBranchId((state.branches || [])[0]?.id || '');
+      if (state.branches && state.branches.length > 0 && !selectedBranchId) {
+        setSelectedBranchId(state.branches[0].id);
       }
     } else if (!isOpen) {
       setIsAuthenticated(false);
@@ -66,7 +67,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       setActiveTab('config');
       setQrModalBench(null);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -121,10 +121,9 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Erreur inconnue');
+        throw new Error(data.error || 'Erreur inconnue lors de la sauvegarde');
       }
 
-      // Synchronise l'état SWR immédiatement
       onUpdate();
       onClose();
     } catch (err: any) {
@@ -172,7 +171,8 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
 
   const addBranch = () => {
     const newId = `b_${Date.now()}`;
-    setBranches([...branches, { id: newId, name: 'Nouvelle Branche', capacity: 20 }]);
+    const newBranch: Branch = { id: newId, name: 'Nouvelle Branche', capacity: 20 };
+    setBranches([...branches, newBranch]);
     setSelectedBranchId(newId);
   };
 
@@ -194,16 +194,20 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     }
   };
 
-  const currentBenches = (benches || []).filter((b) => b.branchId === selectedBranchId);
+  const currentBenches = benches.filter((b) => b.branchId === selectedBranchId);
 
   const addBench = () => {
     if (!selectedBranchId) return;
     const newId = `bench_${Date.now()}`;
     const newToken = `tok_${Math.random().toString(36).substring(2, 9)}`;
-    setBenches([
-      ...benches,
-      { id: newId, branchId: selectedBranchId, name: 'Nouveau Bench', capacity: 5, qrCodeToken: newToken },
-    ]);
+    const newBench: Bench = {
+      id: newId,
+      branchId: selectedBranchId,
+      name: 'Nouveau Bench',
+      capacity: 5,
+      qrCodeToken: newToken,
+    };
+    setBenches([...benches, newBench]);
   };
 
   const updateBench = (id: string, name: string) => {
@@ -288,7 +292,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
               </form>
             ) : (
               <div className="space-y-6">
-                {/* Navigation par onglets */}
                 <div className="flex bg-muted p-1 rounded-xl w-full max-w-md mx-auto mb-6">
                   <button
                     onClick={() => { setActiveTab('config'); setError(''); }}
@@ -377,9 +380,9 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                         <label className="text-sm font-medium text-foreground">Nombre total de places globales</label>
                         <input
                           type="number"
-                          min="1"
+                          min="0"
                           value={totalSpaces}
-                          onChange={(e) => setTotalSpaces(Number(e.target.value))}
+                          onChange={(e) => setTotalSpaces(e.target.value === '' ? 0 : Number(e.target.value))}
                           className="w-full max-w-xs bg-background border border-border rounded-xl px-4 py-3 outline-none focus:border-primary focus:ring-1 focus:ring-primary transition-all text-foreground"
                         />
                       </div>
@@ -389,7 +392,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                       <h3 className="font-semibold text-lg border-b border-border pb-2">Structure et QR Codes Benches</h3>
 
                       <div className="flex flex-col md:flex-row gap-6">
-                        {/* Branches */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">Branches</label>
@@ -420,7 +422,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                   <span className="text-muted-foreground whitespace-nowrap">Capacité Max :</span>
                                   <input
                                     type="number"
-                                    value={branch.capacity || ''}
+                                    value={branch.capacity !== undefined ? branch.capacity : ''}
                                     onChange={(e) => updateBranchCapacity(branch.id, e.target.value)}
                                     placeholder="Illimitée"
                                     className="bg-background border border-border rounded px-2 py-1 outline-none w-20 text-xs"
@@ -432,11 +434,10 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                           </div>
                         </div>
 
-                        {/* Benches */}
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">
-                              Benches {selectedBranchId && `(${((branches || []).find((b) => b.id === selectedBranchId))?.name || ''})`}
+                              Benches {selectedBranchId && `(${branches.find((b) => b.id === selectedBranchId)?.name || ''})`}
                             </label>
                             {selectedBranchId && (
                               <button onClick={addBench} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
@@ -478,7 +479,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                                     <span className="text-muted-foreground whitespace-nowrap">Capacité Max :</span>
                                     <input
                                       type="number"
-                                      value={bench.capacity || ''}
+                                      value={bench.capacity !== undefined ? bench.capacity : ''}
                                       onChange={(e) => updateBenchCapacity(bench.id, e.target.value)}
                                       placeholder="Illimitée"
                                       className="bg-muted border border-border rounded px-2 py-1 outline-none w-20 text-xs"
@@ -510,7 +511,6 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
           </div>
         </motion.div>
 
-        {/* Modal QR Code Bench */}
         {qrModalBench && (
           <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
             <motion.div
