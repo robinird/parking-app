@@ -49,21 +49,21 @@ export function ParkingButton({
   benchName,
 }: ParkingButtonProps) {
   const currentBench = useMemo(() => {
-    return benches.find((b) => b.id === user?.benchId);
+    return (benches || []).find((b) => b.id === user?.benchId);
   }, [benches, user?.benchId]);
 
   const currentBranch = useMemo(() => {
-    return branches.find((br) => br.id === currentBench?.branchId);
+    return (branches || []).find((br) => br.id === currentBench?.branchId);
   }, [branches, currentBench?.branchId]);
 
   const computedBenchAvailability = useMemo(() => {
     if (benchAvailability) return benchAvailability;
-    return calculateBenchAvailability(currentBench, users);
+    return calculateBenchAvailability(currentBench, users || []);
   }, [benchAvailability, currentBench, users]);
 
   const computedBranchAvailability = useMemo(() => {
     if (branchAvailability) return branchAvailability;
-    return calculateBranchAvailability(currentBranch, benches, users);
+    return calculateBranchAvailability(currentBranch, benches || [], users || []);
   }, [branchAvailability, currentBranch, benches, users]);
 
   const displayBranchName = branchName || currentBranch?.name;
