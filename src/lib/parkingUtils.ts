@@ -1,5 +1,5 @@
 import { Bench, Branch, SpaceAvailability, User } from '@/types';
- 
+
 /**
  * Calcule le statut de disponibilité en fonction de l'occupation et de la capacité.
  * - Vert : > 20% de places libres
@@ -47,7 +47,11 @@ export function calculateBenchAvailability(
   users: User[] = []
 ): SpaceAvailability | undefined {
   if (!bench) return undefined;
-  const occupied = users.filter((user) => user.benchId === bench.id && user.isParked).length;
+  
+  // Sécurise le tableau d'utilisateurs
+  const safeUsers = Array.isArray(users) ? users : [];
+  const occupied = safeUsers.filter((user) => user && user.benchId === bench.id && user.isParked).length;
+  
   return getAvailabilityStatus(occupied, bench.capacity);
 }
 
@@ -60,12 +64,19 @@ export function calculateBranchAvailability(
   users: User[] = []
 ): SpaceAvailability | undefined {
   if (!branch) return undefined;
+
+  // Sécurise les tableaux en entrée
+  const safeBenches = Array.isArray(benches) ? benches : [];
+  const safeUsers = Array.isArray(users) ? users : [];
+
   const branchBenchIds = new Set(
-    benches.filter((bench) => bench.branchId === branch.id).map((bench) => bench.id)
+    safeBenches
+      .filter((bench) => bench && bench.branchId === branch.id)
+      .map((bench) => bench.id)
   );
 
-  const occupied = users.filter(
-    (user) => user.benchId && branchBenchIds.has(user.benchId) && user.isParked
+  const occupied = safeUsers.filter(
+    (user) => user && user.benchId && branchBenchIds.has(user.benchId) && user.isParked
   ).length;
 
   return getAvailabilityStatus(occupied, branch.capacity);
