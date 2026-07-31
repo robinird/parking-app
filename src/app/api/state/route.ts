@@ -20,7 +20,10 @@ const DEFAULT_STATE: AppState = {
 
 export async function GET() {
   try {
-    const rawState = await readDB();
+    const rawData = await readDB();
+    
+    // Gérer les cas où readDB() retourne un objet enveloppé (ex: { data: ... } ou { result: ... }) ou l'objet brut
+    const rawState = rawData?.data || rawData?.result || rawData || DEFAULT_STATE;
 
     // Normalisation stricte de la liste des utilisateurs
     const normalizedUsers: User[] = (rawState.users || []).map((u: any) => ({
@@ -40,13 +43,15 @@ export async function GET() {
       totalSpaces,
       availableSpaces,
       parkedUsersCount,
-      branches: rawState.branches && rawState.branches.length > 0 ? rawState.branches : DEFAULT_STATE.branches,
-      benches: rawState.benches && rawState.benches.length > 0 ? rawState.benches : DEFAULT_STATE.benches,
+      branches: Array.isArray(rawState.branches) && rawState.branches.length > 0 ? rawState.branches : DEFAULT_STATE.branches,
+      benches: Array.isArray(rawState.benches) && rawState.benches.length > 0 ? rawState.benches : DEFAULT_STATE.benches,
       users: normalizedUsers,
     };
 
+    // Renvoyer à la fois l'objet structuré complet et un format plat compatible avec tous les fetchers SWR
     return NextResponse.json({
       success: true,
+      ...state,
       data: state,
     });
   } catch (error: any) {
@@ -55,6 +60,7 @@ export async function GET() {
       { 
         success: false, 
         error: 'Erreur interne du serveur lors de la récupération de l’état.',
+        ...DEFAULT_STATE,
         data: DEFAULT_STATE 
       },
       { status: 500 }
@@ -65,7 +71,8 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const rawState = await readDB();
+    const rawData = await readDB();
+    const rawState = rawData?.data || rawData?.result || rawData || DEFAULT_STATE;
 
     const updatedState: AppState = {
       totalSpaces: typeof body.totalSpaces === 'number' ? body.totalSpaces : (rawState.totalSpaces || DEFAULT_STATE.totalSpaces),
@@ -85,6 +92,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
+      ...updatedState,
       data: updatedState,
     });
   } catch (error: any) {
