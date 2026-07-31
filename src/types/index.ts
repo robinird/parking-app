@@ -6,7 +6,7 @@ export interface User {
   isParked: boolean;
   token?: string;
   parkedAt?: string;
-}
+} 
 
 // Alias de compatibilité
 export type UserState = User;
