@@ -33,7 +33,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
 
   const [activeTab, setActiveTab] = useState<'config' | 'users'>('config');
 
-  const [totalSpaces, setTotalSpaces] = useState(state?.totalSpaces || 0);
+  const [totalSpaces, setTotalSpaces] = useState<number>(0);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [benches, setBenches] = useState<Bench[]>([]);
 
@@ -44,9 +44,11 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
 
   const [qrModalBench, setQrModalBench] = useState<Bench | null>(null);
 
+  // Correction : On ignore "state" dans les dépendances pour éviter qu'un polling SWR
+  // en arrière-plan n'écrase les modifications de l'utilisateur en cours de saisie !
   useEffect(() => {
     if (isOpen && state) {
-      setTotalSpaces(state.totalSpaces || 0);
+      setTotalSpaces(Number(state.totalSpaces) || 0);
       setBranches([...(state.branches || [])]);
       setBenches(
         (state.benches || []).map((b) => ({
@@ -57,14 +59,15 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
       if ((state.branches || []).length > 0 && !selectedBranchId) {
         setSelectedBranchId((state.branches || [])[0]?.id || '');
       }
-    } else {
+    } else if (!isOpen) {
       setIsAuthenticated(false);
       setCode('');
       setError('');
       setActiveTab('config');
       setQrModalBench(null);
     }
-  }, [isOpen, state]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -101,6 +104,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     setError('');
 
     try {
+      const parsedTotalSpaces = Number(totalSpaces) || 0;
       const res = await fetch('/api/admin/config', {
         method: 'POST',
         headers: {
@@ -108,7 +112,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
           'x-admin-code': code,
         },
         body: JSON.stringify({
-          totalSpaces: Number(totalSpaces),
+          totalSpaces: parsedTotalSpaces,
           branches,
           benches,
         }),
@@ -120,6 +124,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
         throw new Error(data.error || 'Erreur inconnue');
       }
 
+      // Synchronise l'état SWR immédiatement
       onUpdate();
       onClose();
     } catch (err: any) {
