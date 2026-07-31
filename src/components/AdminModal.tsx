@@ -33,7 +33,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
 
   const [activeTab, setActiveTab] = useState<'config' | 'users'>('config');
 
-  const [totalSpaces, setTotalSpaces] = useState(state.totalSpaces);
+  const [totalSpaces, setTotalSpaces] = useState(state?.totalSpaces || 0);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [benches, setBenches] = useState<Bench[]>([]);
 
@@ -45,17 +45,17 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   const [qrModalBench, setQrModalBench] = useState<Bench | null>(null);
 
   useEffect(() => {
-    if (isOpen) {
-      setTotalSpaces(state.totalSpaces);
-      setBranches([...state.branches]);
+    if (isOpen && state) {
+      setTotalSpaces(state.totalSpaces || 0);
+      setBranches([...(state.branches || [])]);
       setBenches(
-        state.benches.map((b) => ({
+        (state.benches || []).map((b) => ({
           ...b,
           qrCodeToken: b.qrCodeToken || `token_${b.id}_${Math.random().toString(36).substring(2, 7)}`,
         }))
       );
-      if (state.branches.length > 0 && !selectedBranchId) {
-        setSelectedBranchId(state.branches[0].id);
+      if ((state.branches || []).length > 0 && !selectedBranchId) {
+        setSelectedBranchId((state.branches || [])[0]?.id || '');
       }
     } else {
       setIsAuthenticated(false);
@@ -189,7 +189,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
     }
   };
 
-  const currentBenches = benches.filter((b) => b.branchId === selectedBranchId);
+  const currentBenches = (benches || []).filter((b) => b.branchId === selectedBranchId);
 
   const addBench = () => {
     if (!selectedBranchId) return;
@@ -226,7 +226,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
   };
 
   if (!isOpen) return null;
-  const parkedUsersList = state.users.filter((u) => u.isParked);
+  const parkedUsersList = (state?.users || []).filter((u) => u.isParked);
 
   return (
     <AnimatePresence>
@@ -327,8 +327,8 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                           </thead>
                           <tbody className="divide-y divide-border">
                             {parkedUsersList.map((user) => {
-                              const bBench = state.benches.find((b) => b.id === user.benchId);
-                              const bBranch = state.branches.find((br) => br.id === bBench?.branchId);
+                              const bBench = (state?.benches || []).find((b) => b.id === user.benchId);
+                              const bBranch = (state?.branches || []).find((br) => br.id === bBench?.branchId);
 
                               const u = user as any;
                               const targetId = u.id || u.userId;
@@ -431,7 +431,7 @@ export function AdminModal({ isOpen, onClose, state, onUpdate }: AdminModalProps
                         <div className="flex-1 space-y-3">
                           <div className="flex items-center justify-between">
                             <label className="text-sm font-medium text-muted-foreground">
-                              Benches {selectedBranchId && `(${branches.find((b) => b.id === selectedBranchId)?.name})`}
+                              Benches {selectedBranchId && `(${((branches || []).find((b) => b.id === selectedBranchId))?.name || ''})`}
                             </label>
                             {selectedBranchId && (
                               <button onClick={addBench} className="text-primary hover:text-primary/80 flex items-center gap-1 text-xs font-medium">
