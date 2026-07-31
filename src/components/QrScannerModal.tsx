@@ -9,7 +9,7 @@ interface QrScannerModalProps {
   onClose: () => void;
   onScanSuccess: (qrCodeData: string) => void;
   benchName?: string;
-}
+} 
  
 const extractTokenFromPayload = (rawText: string): string => {
   const trimmed = rawText.trim();
