@@ -30,11 +30,14 @@ export async function POST(req: Request) {
       throw new Error('Les variables d\'environnement Redis sont manquantes');
     }
 
-    // 1. Lire l'état actuel depuis Redis via fetch REST natif
-    const getRes = await fetch(`${REDIS_URL}/get/parking_state`, {
+    // 1. Lire l'état actuel depuis Redis via la syntaxe de commande REST standard d'Upstash
+    const getRes = await fetch(`${REDIS_URL}`, {
+      method: 'POST',
       headers: {
         Authorization: `Bearer ${REDIS_TOKEN}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify(['GET', 'parking_state']),
       cache: 'no-store'
     });
 
@@ -82,18 +85,19 @@ export async function POST(req: Request) {
     state.parkedUsersCount = parkedUsersCount;
     state.availableSpaces = Math.max(0, state.totalSpaces - parkedUsersCount);
 
-    // 3. Sauvegarder le nouvel état dans Redis
-    const setRes = await fetch(`${REDIS_URL}/set/parking_state`, {
+    // 3. Sauvegarder le nouvel état dans Redis via la commande REST standard ['SET', key, value]
+    const setRes = await fetch(`${REDIS_URL}`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${REDIS_TOKEN}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(state)
+      body: JSON.stringify(['SET', 'parking_state', JSON.stringify(state)])
     });
 
     if (!setRes.ok) {
-      throw new Error('Erreur de connexion lors de l\'écriture sur Redis');
+      const errText = await setRes.text();
+      throw new Error(`Erreur de connexion lors de l'écriture sur Redis: ${errText}`);
     }
 
     return NextResponse.json({ 
