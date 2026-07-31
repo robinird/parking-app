@@ -1,5 +1,5 @@
 import { AppState, User, Branch, Bench } from '@/types';
-
+ 
 // Interfaces internes pour le parsing sécurisé depuis Redis (évite les erreurs TypeScript "any")
 interface RawUser {
   id?: string | number;
