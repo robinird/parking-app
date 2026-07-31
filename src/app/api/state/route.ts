@@ -22,8 +22,8 @@ export async function GET() {
   try {
     const rawData = await readDB();
     
-    // Gérer les cas où readDB() retourne un objet enveloppé (ex: { data: ... } ou { result: ... }) ou l'objet brut
-    const rawState = rawData?.data || rawData?.result || rawData || DEFAULT_STATE;
+    // Cast explicite en 'any' pour contourner la vérification stricte du type AppState sur des propriétés enveloppées potentielles
+    const rawState = (rawData as any)?.data || (rawData as any)?.result || rawData || DEFAULT_STATE;
 
     // Normalisation stricte de la liste des utilisateurs
     const normalizedUsers: User[] = (rawState.users || []).map((u: any) => ({
@@ -48,7 +48,6 @@ export async function GET() {
       users: normalizedUsers,
     };
 
-    // Renvoyer à la fois l'objet structuré complet et un format plat compatible avec tous les fetchers SWR
     return NextResponse.json({
       success: true,
       ...state,
@@ -72,7 +71,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const rawData = await readDB();
-    const rawState = rawData?.data || rawData?.result || rawData || DEFAULT_STATE;
+    const rawState = (rawData as any)?.data || (rawData as any)?.result || rawData || DEFAULT_STATE;
 
     const updatedState: AppState = {
       totalSpaces: typeof body.totalSpaces === 'number' ? body.totalSpaces : (rawState.totalSpaces || DEFAULT_STATE.totalSpaces),
