@@ -59,11 +59,12 @@ export default function Dashboard() {
     localStorage.setItem('parking_user_bench', bench);
   };
 
-  const currentUserState = state?.users.find(u => u.id === userId);
+  // Sécurisation totale des appels .find avec (state?.tableau || [])
+  const currentUserState = (state?.users || []).find(u => u.id === userId);
   const isParked = currentUserState?.isParked || false;
 
-  const currentUserBench = state?.benches.find(b => b.id === benchId);
-  const currentUserBranch = state?.branches.find(br => br.id === currentUserBench?.branchId);
+  const currentUserBench = (state?.benches || []).find(b => b.id === benchId);
+  const currentUserBranch = (state?.branches || []).find(br => br.id === currentUserBench?.branchId);
 
   const benchAvailability = calculateBenchAvailability(currentUserBench, state?.users || []);
   const branchAvailability = calculateBranchAvailability(
@@ -100,7 +101,7 @@ export default function Dashboard() {
       ...state,
       availableSpaces: state.availableSpaces + (targetParkedState ? -1 : 1),
       parkedUsersCount: state.parkedUsersCount + (targetParkedState ? 1 : -1),
-      users: state.users.map(u => u.id === userId ? { ...u, isParked: targetParkedState } : u)
+      users: (state.users || []).map(u => u.id === userId ? { ...u, isParked: targetParkedState } : u)
     }, false);
 
     try {
@@ -221,9 +222,9 @@ export default function Dashboard() {
                   benchId,
                   isParked: false,
                 }}
-                branches={state.branches}
-                benches={state.benches}
-                users={state.users}
+                branches={state?.branches || []}
+                benches={state?.benches || []}
+                users={state?.users || []}
                 branchAvailability={branchAvailability}
                 benchAvailability={benchAvailability}
               />
