@@ -1,5 +1,5 @@
 import { Bench, Branch, SpaceAvailability, User } from '@/types';
-
+ 
 /**
  * Calcule le statut de disponibilité en fonction de l'occupation et de la capacité.
  * - Vert : > 20% de places libres
