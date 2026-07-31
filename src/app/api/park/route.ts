@@ -46,7 +46,8 @@ export async function POST(request: Request) {
     const { token, parsedBenchId } = resolveTokenAndBench(body);
     const state: AppState = await readDB();
 
-    let targetBench = null;
+    // Typage explicite pour éviter l'inférence implicite de type 'any' sous TypeScript strict
+    let targetBench: any = null;
 
     if (isParked) {
       if (!token && !parsedBenchId) {
