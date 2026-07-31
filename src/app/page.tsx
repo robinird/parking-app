@@ -73,9 +73,19 @@ export default function Dashboard() {
     state?.users || []
   );
 
+  // Calculs sécurisés pour garantir que les compteurs ne soient jamais vides ou NaN
+  const safeTotalSpaces = Number(state?.totalSpaces) || 0;
+  const parkedUsersCount = (state?.users || []).filter(u => u.isParked).length;
+  const safeAvailableSpaces =
+    state?.availableSpaces !== undefined &&
+    state?.availableSpaces !== null &&
+    !isNaN(Number(state.availableSpaces))
+      ? Number(state.availableSpaces)
+      : Math.max(0, safeTotalSpaces - parkedUsersCount);
+
   const isBenchFull = benchAvailability?.status === 'red';
   const isBranchFull = branchAvailability?.status === 'red';
-  const isGlobalFull = state ? state.availableSpaces <= 0 : false;
+  const isGlobalFull = safeTotalSpaces > 0 ? safeAvailableSpaces <= 0 : false;
   const needsProfile = !firstName || !lastName || !benchId;
 
   const isBlockedFromParking = !isParked && (isGlobalFull || isBenchFull || isBranchFull);
@@ -97,10 +107,11 @@ export default function Dashboard() {
     setActionError('');
 
     // Mise à jour optimiste du state SWR
+    const nextAvailableSpaces = safeAvailableSpaces + (targetParkedState ? -1 : 1);
     mutate({
       ...state,
-      availableSpaces: state.availableSpaces + (targetParkedState ? -1 : 1),
-      parkedUsersCount: state.parkedUsersCount + (targetParkedState ? 1 : -1),
+      availableSpaces: Math.max(0, nextAvailableSpaces),
+      parkedUsersCount: parkedUsersCount + (targetParkedState ? 1 : -1),
       users: (state.users || []).map(u => u.id === userId ? { ...u, isParked: targetParkedState } : u)
     }, false);
 
@@ -165,8 +176,8 @@ export default function Dashboard() {
       )}
       
       <Header 
-        available={state.availableSpaces} 
-        total={state.totalSpaces} 
+        available={safeAvailableSpaces} 
+        total={safeTotalSpaces} 
         onOpenAdmin={() => setIsAdminOpen(true)} 
       />
 
@@ -174,7 +185,7 @@ export default function Dashboard() {
         isOpen={isAdminOpen} 
         onClose={() => setIsAdminOpen(false)} 
         state={state}
-        onUpdate={mutate}
+        onUpdate={() => mutate()}
       />
 
       <QrScannerModal
