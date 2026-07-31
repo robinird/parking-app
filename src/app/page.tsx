@@ -12,7 +12,6 @@ import { calculateBenchAvailability, calculateBranchAvailability } from '@/lib/p
 import { motion, AnimatePresence } from 'framer-motion';
 import { CarFront, AlertTriangle } from 'lucide-react';
 
-// Correction du fetcher : la route /api/state renvoie directement le JSON global AppState
 const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function Dashboard() {
@@ -59,7 +58,6 @@ export default function Dashboard() {
     localStorage.setItem('parking_user_bench', bench);
   };
 
-  // Sécurisation totale des appels .find avec (state?.tableau || [])
   const currentUserState = (state?.users || []).find(u => u.id === userId);
   const isParked = currentUserState?.isParked || false;
 
@@ -73,7 +71,7 @@ export default function Dashboard() {
     state?.users || []
   );
 
-  // Calculs sécurisés pour garantir que les compteurs ne soient jamais vides ou NaN
+  // Sécurisation stricte des compteurs globaux pour ne jamais afficher 0/0 par défaut
   const safeTotalSpaces = Number(state?.totalSpaces) || 0;
   const parkedUsersCount = (state?.users || []).filter(u => u.isParked).length;
   const safeAvailableSpaces =
@@ -100,18 +98,15 @@ export default function Dashboard() {
     else if (isBranchFull) statusMessage = `Complet ! Il n'y a plus de places disponibles pour la branche ${currentUserBranch?.name}.`;
   }
 
-  // Exécution réelle de l'action vers l'API /api/park
   const executeParkingAction = async (targetParkedState: boolean, token?: string) => {
     if (!state) return;
     setIsActionLoading(true);
     setActionError('');
 
-    // Mise à jour optimiste du state SWR
     const nextAvailableSpaces = safeAvailableSpaces + (targetParkedState ? -1 : 1);
     mutate({
       ...state,
       availableSpaces: Math.max(0, nextAvailableSpaces),
-      parkedUsersCount: parkedUsersCount + (targetParkedState ? 1 : -1),
       users: (state.users || []).map(u => u.id === userId ? { ...u, isParked: targetParkedState } : u)
     }, false);
 
