@@ -17,10 +17,14 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
   const [selectedBench, setSelectedBench] = useState('');
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle');
 
+  // Protection absolue contre undefined ou null
+  const safeBranches = useMemo(() => state?.branches || [], [state?.branches]);
+  const safeBenches = useMemo(() => state?.benches || [], [state?.benches]);
+
   const availableBenches = useMemo(() => {
     if (!selectedBranch) return [];
-    return state.benches.filter(b => b.branchId === selectedBranch);
-  }, [selectedBranch, state.benches]);
+    return safeBenches.filter(b => b?.branchId === selectedBranch);
+  }, [selectedBranch, safeBenches]);
 
   const handleRequestCameraPermission = async () => {
     setCameraStatus('loading');
@@ -112,7 +116,7 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
                 required
               >
                 <option value="" disabled>Sélectionnez une branche...</option>
-                {state.branches.map(branch => (
+                {safeBranches.map(branch => (
                   <option key={branch.id} value={branch.id}>{branch.name}</option>
                 ))}
               </select>
@@ -132,7 +136,7 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
                   required
                 >
                   <option value="" disabled>Sélectionnez un bench...</option>
-                  {availableBenches.map(bench => (
+                  {(availableBenches || []).map(bench => (
                     <option key={bench.id} value={bench.id}>{bench.name}</option>
                   ))}
                 </select>
