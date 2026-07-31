@@ -17,13 +17,31 @@ export function ProfileSelector({ state, onSelectProfile }: ProfileSelectorProps
   const [selectedBench, setSelectedBench] = useState('');
   const [cameraStatus, setCameraStatus] = useState<'idle' | 'loading' | 'granted' | 'denied'>('idle');
 
-  // Protection absolue contre undefined ou null
-  const safeBranches = useMemo(() => state?.branches || [], [state?.branches]);
+  // Protection absolue contre undefined/null + Ajout d'une branche générique par défaut si la liste est vide
+  const safeBranches = useMemo(() => {
+    const branches = state?.branches || [];
+    if (branches.length === 0) {
+      return [{ id: 'default-branch', name: 'Branche Générique (Par défaut)' }];
+    }
+    return branches;
+  }, [state?.branches]);
+
   const safeBenches = useMemo(() => state?.benches || [], [state?.benches]);
 
+  // Filtrage des benches + Ajout d'un bench générique par défaut si aucun bench n'existe pour la branche
   const availableBenches = useMemo(() => {
     if (!selectedBranch) return [];
-    return safeBenches.filter(b => b?.branchId === selectedBranch);
+    const filtered = safeBenches.filter(b => b?.branchId === selectedBranch);
+    if (filtered.length === 0) {
+      return [
+        {
+          id: 'default-bench',
+          branchId: selectedBranch,
+          name: 'Bench Générique (Par défaut)',
+        },
+      ];
+    }
+    return filtered;
   }, [selectedBranch, safeBenches]);
 
   const handleRequestCameraPermission = async () => {
