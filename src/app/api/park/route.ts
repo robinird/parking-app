@@ -2,33 +2,39 @@ import { NextResponse } from 'next/server';
 import { readDB, writeDB } from '@/lib/db';
 import { AppState, UserState } from '@/types';
 
-interface ParseResult {
-  token: string;
-  parsedBenchId?: string;
-} 
+const resolveScannedBenchId = (payload: Record<string, unknown>, benches: any[]): string | undefined => {
+  const rawToken = typeof payload.token === 'string' ? payload.token.trim() : '';
+  const rawQr = typeof payload.qrCodeData === 'string' ? payload.qrCodeData.trim() : '';
+  const directBenchId = typeof payload.benchId === 'string' ? payload.benchId.trim() : '';
 
-const resolveTokenAndBench = (payload: Record<string, unknown>): ParseResult => {
-  let token = typeof payload.token === 'string' ? payload.token.trim() : '';
-  let parsedBenchId: string | undefined = undefined; 
+  let searchKey = rawToken || rawQr || directBenchId;
+  if (!searchKey) return undefined;
 
-  const rawQrData = typeof payload.qrCodeData === 'string' ? payload.qrCodeData.trim() : '';
-  if (!token && rawQrData) {
-    try {
-      const parsed = JSON.parse(rawQrData);
-      if (parsed && typeof parsed === 'object') {
-        if ('token' in parsed && typeof parsed.token === 'string') {
-          token = parsed.token.trim();
-        }
-        if ('benchId' in parsed && typeof parsed.benchId === 'string') {
-          parsedBenchId = parsed.benchId.trim();
-        }
-      }
-    } catch {
-      token = rawQrData;
+  let parsedToken = searchKey;
+  let parsedId = '';
+  try {
+    const json = JSON.parse(searchKey);
+    if (json && typeof json === 'object') {
+      if (typeof json.token === 'string') parsedToken = json.token.trim();
+      if (typeof json.benchId === 'string') parsedId = json.benchId.trim();
+      if (typeof json.id === 'string') parsedId = json.id.trim();
     }
+  } catch {
+    // Non JSON, utilisation de la chaîne brute
   }
 
-  return { token, parsedBenchId };
+  const found = benches.find((b: any) => {
+    if (parsedId && b.id === parsedId) return true;
+    if (directBenchId && b.id === directBenchId) return true;
+    if (b.id === searchKey) return true;
+    if (b.qrCodeToken && (b.qrCodeToken === searchKey || b.qrCodeToken === parsedToken)) return true;
+    if (b.token && (b.token === searchKey || b.token === parsedToken)) return true;
+    if (searchKey.includes(b.id)) return true;
+    if (b.qrCodeToken && searchKey.includes(b.qrCodeToken)) return true;
+    return false;
+  });
+
+  return found ? found.id : (parsedId || directBenchId || searchKey);
 };
 
 export async function POST(request: Request) {
@@ -43,28 +49,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const { token, parsedBenchId } = resolveTokenAndBench(body);
     const state: AppState = await readDB();
-
-    // Typage explicite pour éviter l'inférence implicite de type 'any' sous TypeScript strict
     let targetBench: any = null;
 
     if (isParked) {
-      if (!token && !parsedBenchId) {
+      const targetBenchId = resolveScannedBenchId(body, state.benches);
+      if (!targetBenchId) {
         return NextResponse.json(
           { error: 'Un QR Code valide ou un token est requis pour se garer.' },
           { status: 400 }
         );
       }
 
-      // 1. Recherche du bench cible strictement basé sur le QR code scanné
-      targetBench = state.benches.find((b) => {
-        if (parsedBenchId && b.id === parsedBenchId) return true;
-        if (b.qrCodeToken && b.qrCodeToken === token) return true;
-        if ((b as any).token && (b as any).token === token) return true;
-        if (b.id === token) return true;
-        return false;
-      });
+      targetBench = state.benches.find((b: any) => b.id === targetBenchId || b.qrCodeToken === targetBenchId);
 
       if (!targetBench) {
         return NextResponse.json(
@@ -73,16 +70,19 @@ export async function POST(request: Request) {
         );
       }
 
-      // 2. CONTRÔLE DE SÉCURITÉ : Vérifier que le QR code scanné correspond bien au bench assigné au profil
-      if (benchId && targetBench.id !== benchId) {
+      // Contrôle de sécurité : Empêcher de scanner un autre bench que celui assigné au profil utilisateur
+      const existingUser = state.users.find((u: any) => u.id === userId);
+      const userAssignedBenchId = existingUser?.benchId;
+
+      if (userAssignedBenchId && targetBench.id !== userAssignedBenchId) {
         return NextResponse.json(
           { error: `Le QR code scanné (${targetBench.name}) ne correspond pas à votre bench assigné.` },
           { status: 403 }
         );
       }
 
-      // 3. Contrôle capacité globale
-      const currentParkedCount = state.users.filter((u) => u.isParked).length;
+      // 1. Contrôle capacité globale
+      const currentParkedCount = state.users.filter((u: any) => u.isParked).length;
       if (currentParkedCount >= state.totalSpaces) {
         return NextResponse.json(
           { error: 'Le parking est globalement complet.' },
@@ -90,10 +90,10 @@ export async function POST(request: Request) {
         );
       }
 
-      // 4. Contrôle capacité du bench
-      const benchLimit = targetBench.capacity ?? (targetBench as any).maxSpaces ?? Infinity;
+      // 2. Contrôle capacité du bench
+      const benchLimit = targetBench.capacity ?? targetBench.maxSpaces ?? Infinity;
       const parkedInBench = state.users.filter(
-        (u) =>
+        (u: any) =>
           u.isParked &&
           (u.benchId ?? '') === targetBench.id &&
           u.id !== userId
@@ -106,16 +106,16 @@ export async function POST(request: Request) {
         );
       }
 
-      // 5. Contrôle capacité de la branche
-      const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
+      // 3. Contrôle capacité de la branche
+      const targetBranch = state.branches.find((br: any) => br.id === targetBench.branchId);
       if (targetBranch) {
-        const branchLimit = targetBranch.capacity ?? (targetBranch as any).maxSpaces ?? Infinity;
+        const branchLimit = targetBranch.capacity ?? targetBranch.maxSpaces ?? Infinity;
         const branchBenchIds = new Set(
-          state.benches.filter((b) => b.branchId === targetBranch.id).map((b) => b.id)
+          state.benches.filter((b: any) => b.branchId === targetBranch.id).map((b: any) => b.id)
         );
 
         const parkedInBranch = state.users.filter(
-          (u) =>
+          (u: any) =>
             u.isParked &&
             branchBenchIds.has(u.benchId ?? '') &&
             u.id !== userId
@@ -132,11 +132,11 @@ export async function POST(request: Request) {
 
     const effectiveBenchId = benchId || (isParked && targetBench ? targetBench.id : undefined);
 
-    const existingUserIndex = state.users.findIndex((u) => u.id === userId);
+    const existingUserIndex = state.users.findIndex((u: any) => u.id === userId);
     let updatedUsers: UserState[];
 
     if (existingUserIndex !== -1) {
-      updatedUsers = state.users.map((u, idx) => {
+      updatedUsers = state.users.map((u: any, idx: number) => {
         if (idx === existingUserIndex) {
           return {
             ...u,
@@ -159,7 +159,7 @@ export async function POST(request: Request) {
       updatedUsers = [...state.users, newUser];
     }
 
-    const parkedUsersCount = updatedUsers.filter((u) => u.isParked).length;
+    const parkedUsersCount = updatedUsers.filter((u: any) => u.isParked).length;
     const availableSpaces = Math.max(0, state.totalSpaces - parkedUsersCount);
 
     const newState: AppState = {
