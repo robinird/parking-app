@@ -44,21 +44,23 @@ export async function POST(request: Request) {
     }
 
     const { token, parsedBenchId } = resolveTokenAndBench(body);
-    const effectiveBenchId = (typeof benchId === 'string' && benchId) || parsedBenchId;
-
     const state: AppState = await readDB();
 
+    let targetBench = null;
+
     if (isParked) {
-      if (!token && !effectiveBenchId) {
+      if (!token && !parsedBenchId) {
         return NextResponse.json(
           { error: 'Un QR Code valide ou un token est requis pour se garer.' },
           { status: 400 }
         );
       }
 
-      const targetBench = state.benches.find((b) => {
-        if (effectiveBenchId && b.id === effectiveBenchId) return true;
-        if (b.token && b.token === token) return true;
+      // 1. Recherche du bench cible strictement basé sur le QR code scanné
+      targetBench = state.benches.find((b) => {
+        if (parsedBenchId && b.id === parsedBenchId) return true;
+        if (b.qrCodeToken && b.qrCodeToken === token) return true;
+        if ((b as any).token && (b as any).token === token) return true;
         if (b.id === token) return true;
         return false;
       });
@@ -70,7 +72,15 @@ export async function POST(request: Request) {
         );
       }
 
-      // 1. Contrôle capacité globale
+      // 2. CONTRÔLE DE SÉCURITÉ : Vérifier que le QR code scanné correspond bien au bench assigné au profil
+      if (benchId && targetBench.id !== benchId) {
+        return NextResponse.json(
+          { error: `Le QR code scanné (${targetBench.name}) ne correspond pas à votre bench assigné.` },
+          { status: 403 }
+        );
+      }
+
+      // 3. Contrôle capacité globale
       const currentParkedCount = state.users.filter((u) => u.isParked).length;
       if (currentParkedCount >= state.totalSpaces) {
         return NextResponse.json(
@@ -79,8 +89,8 @@ export async function POST(request: Request) {
         );
       }
 
-      // 2. Contrôle capacité du bench (Coalescence nulle absolue pour TS Strict + fallback de sécurité)
-      const benchLimit = targetBench.capacity ?? targetBench.maxSpaces ?? Infinity;
+      // 4. Contrôle capacité du bench
+      const benchLimit = targetBench.capacity ?? (targetBench as any).maxSpaces ?? Infinity;
       const parkedInBench = state.users.filter(
         (u) =>
           u.isParked &&
@@ -95,10 +105,10 @@ export async function POST(request: Request) {
         );
       }
 
-      // 3. Contrôle capacité de la branche (Coalescence nulle absolue pour TS Strict + fallback de sécurité)
+      // 5. Contrôle capacité de la branche
       const targetBranch = state.branches.find((br) => br.id === targetBench.branchId);
       if (targetBranch) {
-        const branchLimit = targetBranch.capacity ?? targetBranch.maxSpaces ?? Infinity;
+        const branchLimit = targetBranch.capacity ?? (targetBranch as any).maxSpaces ?? Infinity;
         const branchBenchIds = new Set(
           state.benches.filter((b) => b.branchId === targetBranch.id).map((b) => b.id)
         );
@@ -118,6 +128,8 @@ export async function POST(request: Request) {
         }
       }
     }
+
+    const effectiveBenchId = benchId || (isParked && targetBench ? targetBench.id : undefined);
 
     const existingUserIndex = state.users.findIndex((u) => u.id === userId);
     let updatedUsers: UserState[];
